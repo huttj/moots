@@ -124,6 +124,16 @@
     return { tweets, notes, account };
   }
 
+  // read a File's text, retrying transient NotReadableError (cloud placeholder still hydrating, etc.)
+  async function readFileText(f) {
+    let lastErr;
+    for (let i = 0; i < 3; i++) {
+      try { return await f.text(); }
+      catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 250 * (i + 1))); }
+    }
+    throw lastErr;
+  }
+
   async function readArchive(files) {
     let tweets = null, notes = null, account = null;
     const addTweets = arr => { tweets = (tweets || []).concat(arr); };
@@ -140,7 +150,7 @@
         if (nt.length) notes = parseJSONLoose(await zip.files[nt[0]].async('string'));
       } else {
         // a .js / .json file: raw export part (array) OR a Community Archive (object)
-        const val = parseJSONLoose(await f.text());
+        const val = parseJSONLoose(await readFileText(f));
         if (Array.isArray(val)) {
           if (/note-tweet/i.test(name)) notes = val; else addTweets(val);
         } else if (val && typeof val === 'object') {
@@ -172,7 +182,11 @@
       location.reload();
     } catch (err) {
       unbusy();
-      alert('Could not read that archive:\n\n' + err.message);
+      const m = String((err && (err.name + ' ' + err.message)) || err);
+      const unreadable = /NotReadable|NotFound|could not be read|permission/i.test(m);
+      alert(unreadable
+        ? "Couldn't read that file.\n\nIt looks like the file became unreadable after you picked it — usually because it's a cloud placeholder (iCloud / Dropbox / Desktop & Documents) that isn't fully downloaded, or it moved while uploading.\n\nFix: move it to a plain local folder (e.g. Downloads), make sure it's fully downloaded (no ☁️ icon), then drag it in again."
+        : 'Could not read that archive:\n\n' + (err.message || err));
     }
   }
 
