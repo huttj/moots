@@ -562,11 +562,12 @@ setTimeout(()=>{document.getElementById('cloading').style.display='none';}, 2600
 // d3-zoom calls stopImmediatePropagation() on mousedown/mouseup and would
 // otherwise swallow a plain canvas 'click'/'mouseup' listener.
 let transform = d3.zoomIdentity.translate(W/2,H/2).scale(0.16);
-let gstart=null;
+let gstart=null, zooming=false;
 const zoom = d3.zoom().scaleExtent([0.04, 60])
-  .on('start',(ev)=>{ gstart = ev.sourceEvent ? {x:ev.transform.x,y:ev.transform.y,k:ev.transform.k,src:ev.sourceEvent} : null; })
-  .on('zoom',(ev)=>{ transform = ev.transform; scheduleDraw(); })
+  .on('start',(ev)=>{ zooming=true; gstart = ev.sourceEvent ? {x:ev.transform.x,y:ev.transform.y,k:ev.transform.k,src:ev.sourceEvent} : null; })
+  .on('zoom',(ev)=>{ zooming=true; transform = ev.transform; scheduleDraw(); })
   .on('end',(ev)=>{
+    zooming=false; scheduleDraw();                          // render pfps once motion stops
     const s=gstart; gstart=null;
     if(!s) return;                                          // programmatic (fly) -> not a click
     const t=ev.transform;
@@ -604,6 +605,9 @@ function draw(){
   ctx.translate(transform.x, transform.y);
   ctx.scale(transform.k, transform.k);
   const k = transform.k;
+  // big graphs: while the layout is settling or you're zooming, draw plain dots
+  // (skip profile pictures + links) so it stays responsive; pfps snap in when still.
+  const moving = nodes.length>3000 && (sim.alpha()>0.02 || zooming);
 
   // viewport bounds in world coords (for culling)
   const x0 = (-transform.x)/k, y0=(-transform.y)/k;
@@ -631,7 +635,7 @@ function draw(){
     const cx=(s.x+t.x)/2 - dy/len*off, cy=(s.y+t.y)/2 + dx/len*off;
     ctx.moveTo(s.x,s.y); ctx.quadraticCurveTo(cx,cy,t.x,t.y);
   }
-  if(k>0.16 || hasSel){
+  if((k>0.16 || hasSel) && !moving){
     // base links (batched into one path)
     ctx.strokeStyle = hasSel ? 'rgba(122,162,255,0.045)' : 'rgba(122,162,255,0.10)';
     ctx.lineWidth = Math.max(0.5, 0.8/k);
@@ -678,7 +682,7 @@ function draw(){
       continue;
     }
 
-    if(screenR < 3.2 && !isSel && !isHov){     // tiny: colored dot
+    if((screenR < 3.2 || moving) && !isSel && !isHov){   // tiny, or moving: plain dot (no pfp)
       ctx.fillStyle=col;
       ctx.beginPath(); ctx.arc(n.x,n.y,n.size,0,7); ctx.fill();
       continue;
@@ -1143,6 +1147,17 @@ if(new URLSearchParams(location.search).get('layout')==='community') setTimeout(
 
 /* ====================== BOOT ====================== */
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+
+// IndexedDB handoff for uploaded archives (no ~5MB sessionStorage cap — handles huge graphs)
+function idbOpen(){ return new Promise((res,rej)=>{ const o=indexedDB.open('moots',1);
+  o.onupgradeneeded=()=>{ try{o.result.createObjectStore('kv');}catch(_){} }; o.onsuccess=()=>res(o.result); o.onerror=()=>rej(o.error); }); }
+async function idbSet(k,v){ const db=await idbOpen(); return new Promise((res,rej)=>{ const tx=db.transaction('kv','readwrite');
+  tx.objectStore('kv').put(v,k); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }); }
+async function idbGet(k){ const db=await idbOpen(); return new Promise((res,rej)=>{ const tx=db.transaction('kv','readonly');
+  const g=tx.objectStore('kv').get(k); g.onsuccess=()=>res(g.result); tx.oncomplete=()=>db.close(); tx.onerror=()=>{db.close();rej(tx.error);}; }); }
+async function idbDel(k){ const db=await idbOpen(); return new Promise((res)=>{ const tx=db.transaction('kv','readwrite');
+  tx.objectStore('kv').delete(k); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }); }
+window.idbSet=idbSet; window.idbGet=idbGet; window.idbDel=idbDel;
 function configureSources(source){
   if(source==='upload'||source==='shared'){
     AV = sn => '/pfp?u='+encodeURIComponent(sn);
@@ -1159,7 +1174,12 @@ async function boot(){
   if(vm){
     try{ const r=await fetch('/v/'+vm[1]+'/data'); if(r.ok){ raw=await r.json(); source='shared'; } }catch(_){}
   }
-  // 2) data you just uploaded (handed off via sessionStorage)
+  // 2) data you just uploaded (handed off via IndexedDB, with a sessionStorage fallback).
+  //    race a timeout so a stalled/blocked IndexedDB can never hang the page load.
+  if(!raw){ try{
+    const d=await Promise.race([idbGet('mootsData'), new Promise(r=>setTimeout(()=>r(null),2000))]);
+    if(d){ raw=d; source='upload'; }
+  }catch(_){} }
   if(!raw){ try{ const s=sessionStorage.getItem('mootsData'); if(s){ raw=JSON.parse(s); source='upload'; } }catch(_){} }
   // 3) the demo (the owner's own map)
   if(!raw){

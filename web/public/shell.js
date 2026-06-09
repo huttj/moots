@@ -87,8 +87,9 @@
 
   // Community Archive (community-archive.org): one JSON object combining the whole export.
   function extractCommunityArchive(obj) {
-    const tweets = [];
-    for (const k of ['tweets', 'community-tweet']) if (Array.isArray(obj[k])) tweets.push(...obj[k]);
+    // NB: concat, not push(...arr) — spreading a huge array as args overflows the stack
+    let tweets = [];
+    for (const k of ['tweets', 'community-tweet']) if (Array.isArray(obj[k])) tweets = tweets.concat(obj[k]);
     let notes = null;
     for (const k of ['note-tweet', 'noteTweet', 'note_tweet']) if (Array.isArray(obj[k])) { notes = obj[k]; break; }
     let account = null;
@@ -138,15 +139,11 @@
       await new Promise(r => setTimeout(r, 30));
       const data = window.MootsParse.parseArchive(tweets, notes, account);
       if (!data.people.length) throw new Error('no mentions or replies found in this archive');
-      try {
-        sessionStorage.setItem('mootsData', JSON.stringify(data));
-      } catch (_) {
-        // too big for sessionStorage: hand off in-memory and re-init without reload
-        unbusy();
-        window.__pendingData = data;
-        return location.reload(); // best-effort; pending path handled on next load if present
-      }
-      location.reload(); // boot() picks up sessionStorage -> renders their constellation
+      busy('rendering your constellation…');
+      // IndexedDB has no ~5MB cap, so even huge graphs survive the reload; fall back if it fails
+      try { await window.idbSet('mootsData', data); }
+      catch (_) { try { sessionStorage.setItem('mootsData', JSON.stringify(data)); } catch (__) {} }
+      location.reload();
     } catch (err) {
       unbusy();
       alert('Could not read that archive:\n\n' + err.message);
@@ -221,7 +218,8 @@
   /* ---------------- clear uploaded archive -> back to the demo ---------------- */
   $('btn-clear').onclick = () => {
     try { sessionStorage.removeItem('mootsData'); } catch (_) {}
-    location.replace(location.origin + '/');
+    Promise.resolve(window.idbDel && window.idbDel('mootsData')).catch(() => {})
+      .finally(() => location.replace(location.origin + '/'));
   };
 
   // pick up oversized in-memory handoff (when sessionStorage was too small)
