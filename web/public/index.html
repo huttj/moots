@@ -1094,13 +1094,25 @@ function setLayoutMode(m){
 // ---- export the constellation as a PNG (for sharing / OG image) ----
 function exportPNG(scale){
   scale = scale||2;
-  const ow=Math.round(W*scale), oh=Math.round(H*scale);
-  const c=document.createElement('canvas'); c.width=ow; c.height=oh;
-  const cx=c.getContext('2d');
-  const g=cx.createRadialGradient(ow*0.5,oh*0.45,0,ow*0.5,oh*0.45,Math.max(ow,oh)*0.7);
-  g.addColorStop(0,'#15152a'); g.addColorStop(1,'#0a0a12');
-  cx.fillStyle=g; cx.fillRect(0,0,ow,oh);
-  cx.drawImage(canvas,0,0,ow,oh);                 // throws if canvas tainted (file://)
+  // RE-RENDER the scene at `scale` device-pixel density (not an upscale of the screen
+  // bitmap): temporarily bump the canvas resolution, redraw, snapshot, then restore.
+  const oldDPR=DPR, oldW=canvas.width, oldH=canvas.height;
+  let ow, oh;
+  try{
+    DPR = scale;
+    canvas.width = ow = Math.round(W*scale);
+    canvas.height = oh = Math.round(H*scale);
+    draw();                                          // crisp render at full target resolution
+  } finally {
+    // copy the high-res render onto the export canvas BEFORE restoring the screen
+    var c=document.createElement('canvas'); c.width=ow; c.height=oh;
+    var cx=c.getContext('2d');
+    const g=cx.createRadialGradient(ow*0.5,oh*0.45,0,ow*0.5,oh*0.45,Math.max(ow,oh)*0.7);
+    g.addColorStop(0,'#15152a'); g.addColorStop(1,'#0a0a12');
+    cx.fillStyle=g; cx.fillRect(0,0,ow,oh);
+    cx.drawImage(canvas,0,0);                        // 1:1, no scaling -> sharp
+    DPR=oldDPR; canvas.width=oldW; canvas.height=oldH; draw();   // restore on-screen view
+  }
   cx.fillStyle='rgba(255,209,102,0.92)';
   cx.font=`700 ${Math.round(15*scale)}px -apple-system,sans-serif`;
   cx.textAlign='right'; cx.textBaseline='bottom';
