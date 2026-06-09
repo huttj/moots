@@ -32,9 +32,11 @@
     return self; // may be null for archives with no self-threads
   }
 
-  function parseArchive(tweets, notes) {
-    const self = detectSelf(tweets);
-    let selfName = null;
+  // account (optional): { username, name } — used when the source already knows whose
+  // archive it is (e.g. a Community Archive), instead of the self-thread heuristic.
+  function parseArchive(tweets, notes, account) {
+    const self = (account && account.username) || detectSelf(tweets);
+    let selfName = (account && account.name) || null;
 
     const mentions = new Map(), replies = new Map(), names = new Map(), ids = new Map();
     const first = new Map(), last = new Map();

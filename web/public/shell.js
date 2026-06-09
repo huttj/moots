@@ -75,53 +75,68 @@
   const busy = (msg) => { $('busy-text').textContent = msg; $('busy').classList.add('show'); };
   const unbusy = () => $('busy').classList.remove('show');
 
-  // strip the "window.YTD.tweets.part0 = " prefix Twitter wraps its .js data in
+  // strip the "window.YTD.tweets.part0 = " prefix Twitter wraps its .js data in.
+  // (Community Archive / plain JSON already start with { or [ — leave those alone.)
   function stripJS(text) {
-    const i = text.indexOf('=');
-    const br = text.indexOf('[');
-    if (br !== -1 && (i === -1 || br < i + 40)) return text.slice(br);
-    return text;
+    const t = text.replace(/^﻿/, '').replace(/^\s+/, '');
+    if (t[0] === '{' || t[0] === '[') return t;
+    const eq = t.indexOf('=');                       // window.YTD.tweets.part0 = [...]
+    return (eq !== -1 && eq < 120) ? t.slice(eq + 1) : t;
   }
   function parseJSONLoose(text) { return JSON.parse(stripJS(text)); }
 
+  // Community Archive (community-archive.org): one JSON object combining the whole export.
+  function extractCommunityArchive(obj) {
+    const tweets = [];
+    for (const k of ['tweets', 'community-tweet']) if (Array.isArray(obj[k])) tweets.push(...obj[k]);
+    let notes = null;
+    for (const k of ['note-tweet', 'noteTweet', 'note_tweet']) if (Array.isArray(obj[k])) { notes = obj[k]; break; }
+    let account = null;
+    const a = Array.isArray(obj.account) ? (obj.account[0] && (obj.account[0].account || obj.account[0])) : null;
+    if (a && a.username) account = { username: a.username, name: a.accountDisplayName || a.username };
+    return { tweets, notes, account };
+  }
+
   async function readArchive(files) {
-    let tweets = null, notes = null;
+    let tweets = null, notes = null, account = null;
+    const addTweets = arr => { tweets = (tweets || []).concat(arr); };
     for (const f of files) {
       const name = f.name.toLowerCase();
       if (name.endsWith('.zip')) {
-        if (!window.JSZip) throw new Error('zip support failed to load — try dropping tweets.js directly');
+        if (!window.JSZip) throw new Error('zip support failed to load — try dropping tweets.js / the JSON directly');
         const zip = await window.JSZip.loadAsync(f);
-        // find tweets.js / tweets.json (+ optional parts) and note-tweet
         const entries = Object.keys(zip.files);
         const tw = entries.filter(n => /(^|\/)tweets(-part\d+)?\.(js|json)$/i.test(n)).sort();
         const nt = entries.filter(n => /(^|\/)note-tweet\.(js|json)$/i.test(n));
         if (!tw.length) throw new Error('no tweets.js found inside the zip');
-        let arr = [];
-        for (const e of tw) arr = arr.concat(parseJSONLoose(await zip.files[e].async('string')));
-        tweets = arr;
+        for (const e of tw) addTweets(parseJSONLoose(await zip.files[e].async('string')));
         if (nt.length) notes = parseJSONLoose(await zip.files[nt[0]].async('string'));
-      } else if (/tweets(-part\d+)?\.(js|json)$/i.test(name) || name === 'tweets.json' || name === 'tweets.js') {
-        const t = parseJSONLoose(await f.text());
-        tweets = (tweets || []).concat(t);
-      } else if (/note-tweet\.(js|json)$/i.test(name)) {
-        notes = parseJSONLoose(await f.text());
       } else {
-        // unknown single file: try to parse as tweets
-        try { tweets = parseJSONLoose(await f.text()); } catch (_) {}
+        // a .js / .json file: raw export part (array) OR a Community Archive (object)
+        const val = parseJSONLoose(await f.text());
+        if (Array.isArray(val)) {
+          if (/note-tweet/i.test(name)) notes = val; else addTweets(val);
+        } else if (val && typeof val === 'object') {
+          const ex = extractCommunityArchive(val);
+          if (ex.tweets.length) addTweets(ex.tweets);
+          if (ex.notes) notes = ex.notes;
+          if (ex.account) account = ex.account;
+        }
       }
     }
-    if (!tweets) throw new Error("couldn't find your tweets — drop tweets.js, tweets.json, or the archive .zip");
-    return { tweets, notes };
+    if (!tweets || !tweets.length)
+      throw new Error("couldn't find any tweets — drop tweets.js, tweets.json, the archive .zip, or a Community Archive JSON");
+    return { tweets, notes, account };
   }
 
   async function handleFiles(files) {
     try {
       busy('reading your archive…');
       await new Promise(r => setTimeout(r, 30));
-      const { tweets, notes } = await readArchive(Array.from(files));
+      const { tweets, notes, account } = await readArchive(Array.from(files));
       busy(`tallying ${tweets.length.toLocaleString()} tweets…`);
       await new Promise(r => setTimeout(r, 30));
-      const data = window.MootsParse.parseArchive(tweets, notes);
+      const data = window.MootsParse.parseArchive(tweets, notes, account);
       if (!data.people.length) throw new Error('no mentions or replies found in this archive');
       try {
         sessionStorage.setItem('mootsData', JSON.stringify(data));
