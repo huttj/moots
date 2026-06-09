@@ -19,21 +19,27 @@
       else w.classList.toggle('hide', !!localStorage.getItem('moots_seen'));
     } else {
       w.classList.add('hide'); // viewing your own / a shared map: skip the pitch
-      if (source === 'upload') {       // you just uploaded your archive -> offer to publish
-        const self = (window.__moots && window.__moots.data && window.__moots.data.self) || 'your';
-        $('pub-who').textContent = self === 'your' ? 'your' : '@' + self + '’s';
-        $('publish').classList.remove('hide');
-      }
+      if (source === 'upload') showPublish();   // you just uploaded -> offer to publish/share
     }
   }
   window.__shellReady = applyWelcome;
   if (window.__MOOTS_SOURCE) applyWelcome(window.__MOOTS_SOURCE); // boot already finished
 
-  /* ---------------- publish to moots.fyi ---------------- */
+  /* ---------------- publish + share to X ---------------- */
+  let publishedLink = null;
+  function showPublish() {
+    const self = window.__moots && window.__moots.data && window.__moots.data.self;
+    $('pub-who').textContent = self ? '@' + self + '’s' : 'this';
+    $('publish').classList.remove('hide');
+  }
   $('pclose').onclick = $('p-skip').onclick = () => $('publish').classList.add('hide');
-  $('p-go').onclick = async () => {
-    if (!$('p-public').checked) { $('publish').classList.add('hide'); return; }
-    const res = $('p-result'); res.textContent = 'publishing…';
+
+  // publish once (captures the current view as the preview image); returns the permalink
+  async function ensurePublished() {
+    if (publishedLink) return publishedLink;
+    const res = $('p-result');
+    if (!$('p-public').checked) { res.textContent = 'tick “make it public” first ↑'; return null; }
+    res.textContent = 'publishing…';
     try {
       const data = window.__moots.data;
       let png = null;
@@ -44,12 +50,32 @@
       const r = await fetch('/share', { method: 'POST', body: fd });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const { id } = await r.json();
-      const link = location.origin + '/v/' + id;
-      try { await navigator.clipboard.writeText(link); } catch (_) {}
-      res.innerHTML = 'published → <a href="' + link + '" style="color:var(--accent2)">' + link.replace(/^https?:\/\//, '') + '</a> (copied)';
+      publishedLink = location.origin + '/v/' + id;
+      // flip the panel into its "published" state
+      $('p-checkwrap').style.display = 'none';
+      $('pub-title').innerHTML = 'Published <span class="dot">✦</span>';
+      $('pub-desc').textContent = 'Anyone with this link can explore the map, and X shows this view as the preview image.';
+      $('p-skip').textContent = 'Done';
+      res.innerHTML = '<a href="' + publishedLink + '" target="_blank" rel="noopener" style="color:var(--accent2)">' + publishedLink.replace(/^https?:\/\//, '') + '</a>';
+      return publishedLink;
     } catch (e) {
-      res.textContent = 'publishing isn’t live yet — coming soon';
+      res.textContent = 'publishing failed — try again';
+      return null;
     }
+  }
+
+  $('p-share').onclick = async () => {
+    const link = await ensurePublished();
+    if (!link) return;
+    const self = window.__moots.data && window.__moots.data.self;
+    const text = (self ? '@' + self + '’s' : 'My') + ' Twitter constellation ✦';
+    const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(link);
+    window.open(url, '_blank', 'noopener,width=600,height=660');
+  };
+  $('p-copy').onclick = async () => {
+    const link = await ensurePublished();
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); const r = $('p-result'); if (!/copied/.test(r.textContent)) r.innerHTML += ' <span style="color:var(--accent)">copied ✓</span>'; } catch (_) {}
   };
   const dismissWelcome = () => { $('welcome').classList.add('hide'); try { localStorage.setItem('moots_seen', '1'); } catch (_) {} };
   $('wclose').onclick = dismissWelcome;
@@ -200,7 +226,7 @@
   const dlmenu = $('dlmenu');
   $('btn-share').onclick = (e) => { e.stopPropagation(); dlmenu.classList.toggle('show'); };
   document.addEventListener('click', (e) => { if (!e.target.closest('#dlmenu') && !e.target.closest('#btn-share')) dlmenu.classList.remove('show'); });
-  dlmenu.querySelectorAll('button').forEach(b => b.onclick = async () => {
+  dlmenu.querySelectorAll('button[data-s]').forEach(b => b.onclick = async () => {
     dlmenu.classList.remove('show');
     if (!window.__moots) return;
     try {
@@ -214,6 +240,8 @@
       alert('Could not export the image.\n(' + e.message + ')\nTip: this needs to run over http(s), not a file:// page.');
     }
   });
+  // reopen the publish/share panel anytime (so "Keep private" isn't a one-way door)
+  $('dl-share').onclick = () => { dlmenu.classList.remove('show'); showPublish(); };
 
   /* ---------------- clear uploaded archive -> back to the demo ---------------- */
   $('btn-clear').onclick = () => {

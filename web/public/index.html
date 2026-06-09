@@ -178,6 +178,7 @@
   .dlmenu button{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--ink);
     font-size:13px;padding:8px 9px;border-radius:7px;cursor:pointer}
   .dlmenu button:hover{background:#23233a}
+  .dlmenu .dlsep{height:1px;background:var(--line);margin:5px 3px}
   .srow.check{display:flex;align-items:center;gap:8px;font-size:12.5px}
   .settings .reset{background:#1c1c2c;border:1px solid var(--line);color:var(--dim);border-radius:8px;
     padding:6px 10px;font-size:12px;cursor:pointer;width:100%}
@@ -291,12 +292,13 @@
 <!-- publish bar (shown after you upload your own archive) -->
 <div class="welcome hide" id="publish">
   <button class="wclose" id="pclose" title="dismiss">×</button>
-  <h2>Your constellation is ready <span class="dot">✦</span></h2>
-  <p>Publish it so others can explore <b id="pub-who">your</b> map at <b>moots.fyi</b> and share a link to it.
+  <h2 id="pub-title">Share your constellation <span class="dot">✦</span></h2>
+  <p id="pub-desc">Publish <b id="pub-who">your</b> map so anyone can explore it at <b>moots.fyi</b> — this exact view becomes the preview image when you post to X.
   Only your aggregated tally (handles, counts, dates) and the picture are stored — never your tweet text.</p>
   <div class="actions">
-    <label class="pcheck"><input type="checkbox" id="p-public" checked> make it public</label>
-    <button class="hbtn primary" id="p-go">Publish &amp; copy link</button>
+    <label class="pcheck" id="p-checkwrap"><input type="checkbox" id="p-public" checked> make it public</label>
+    <button class="hbtn primary" id="p-share">𝕏 &nbsp;Share on X</button>
+    <button class="hbtn" id="p-copy">Copy link</button>
     <button class="hbtn" id="p-skip">Keep private</button>
     <span class="tiny" id="p-result"></span>
   </div>
@@ -355,6 +357,8 @@
   <button data-s="1">Standard · 1×</button>
   <button data-s="2">High · 2×</button>
   <button data-s="3">Ultra · 3×</button>
+  <div class="dlsep"></div>
+  <button id="dl-share">✦ Publish &amp; share link…</button>
 </div>
 
 <!-- file input + busy -->
