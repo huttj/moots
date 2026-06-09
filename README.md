@@ -9,7 +9,7 @@ image.
 
 🔭 **Live:** [moots.fyi](https://moots.fyi)
 
-![moots](web/public/og-default.png)
+![moots](web/public/screenshot.jpg)
 
 ---
 
