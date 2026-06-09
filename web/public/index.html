@@ -146,6 +146,13 @@
   .welcome .tiny{color:var(--dim);font-size:11.5px;margin-left:auto}
   .pcheck{display:flex;align-items:center;gap:7px;font-size:13px;color:#c9c9da;cursor:pointer}
   .pcheck input{accent-color:var(--accent);width:15px;height:15px}
+  .pub-prevwrap{position:relative;width:100%;margin:4px 0 11px;border:1px solid var(--line);
+    border-radius:10px;overflow:hidden;background:#0a0a12;min-height:90px}
+  .pub-preview{display:block;width:100%;height:auto;max-height:240px;object-fit:contain}
+  .pub-capturing{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--dim);font-size:13px;background:#0a0a12}
+  .pub-capturing.hide{display:none}
+  .pub-desc{font-size:12.5px;line-height:1.55}
   .wclose{position:absolute;right:12px;top:11px;width:26px;height:26px;border:0;border-radius:50%;
     background:rgba(255,255,255,.06);color:var(--dim);cursor:pointer;font-size:15px}
 
@@ -215,6 +222,9 @@
   <button class="hbtn icon" id="btn-settings" title="Display settings">⚙</button>
   <button class="hbtn icon" id="btn-share" title="Save image">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  </button>
+  <button class="hbtn icon" id="btn-shareopen" title="Share this view">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
   </button>
   <a class="hbtn icon ghlink" href="https://github.com/huttj/moots" target="_blank" rel="noopener" title="View source on GitHub">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -292,14 +302,19 @@
 <!-- publish bar (shown after you upload your own archive) -->
 <div class="welcome hide" id="publish">
   <button class="wclose" id="pclose" title="dismiss">×</button>
-  <h2 id="pub-title">Share your constellation <span class="dot">✦</span></h2>
-  <p id="pub-desc">Publish <b id="pub-who">your</b> map so anyone can explore it at <b>moots.fyi</b> — this exact view becomes the preview image when you post to X.
-  Only your aggregated tally (handles, counts, dates) and the picture are stored — never your tweet text.</p>
+  <h2 id="pub-title">Share this view <span class="dot">✦</span></h2>
+  <div class="pub-prevwrap">
+    <img id="pub-preview" class="pub-preview" alt="share preview">
+    <div id="pub-capturing" class="pub-capturing">capturing preview…</div>
+  </div>
+  <p id="pub-desc" class="pub-desc">This is exactly what people will see — <b>zoom/adjust the map behind this and click <span style="color:var(--accent)">↻ recapture</span></b> to reframe. Only your tally + this image are stored, never your tweets.</p>
   <div class="actions">
     <label class="pcheck" id="p-checkwrap"><input type="checkbox" id="p-public" checked> make it public</label>
     <button class="hbtn primary" id="p-share">𝕏 &nbsp;Share on X</button>
     <button class="hbtn" id="p-copy">Copy link</button>
-    <button class="hbtn" id="p-skip">Keep private</button>
+    <button class="hbtn" id="p-recap">↻ recapture</button>
+    <button class="hbtn" id="p-download">↓ save</button>
+    <button class="hbtn" id="p-skip">Close</button>
     <span class="tiny" id="p-result"></span>
   </div>
 </div>
@@ -357,8 +372,6 @@
   <button data-s="1">Standard · 1×</button>
   <button data-s="2">High · 2×</button>
   <button data-s="3">Ultra · 3×</button>
-  <div class="dlsep"></div>
-  <button id="dl-share">✦ Publish &amp; share link…</button>
 </div>
 
 <!-- file input + busy -->

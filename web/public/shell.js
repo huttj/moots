@@ -2,6 +2,8 @@
    Talks to the viz through window.__moots (set by initMoots). */
 (function () {
   const $ = id => document.getElementById(id);
+  let publishedLink = null;   // permalink for the currently-previewed capture (declared early — applyWelcome may showShare())
+  let currentBlob = null;     // captured PNG of the current view
 
   /* ---------------- welcome / about card ----------------
      Works regardless of whether boot() or shell.js runs first:
@@ -19,44 +21,50 @@
       else w.classList.toggle('hide', !!localStorage.getItem('moots_seen'));
     } else {
       w.classList.add('hide'); // viewing your own / a shared map: skip the pitch
-      if (source === 'upload') showPublish();   // you just uploaded -> offer to publish/share
+      if (source === 'upload') showShare();   // you just uploaded -> open the share preview
     }
   }
   window.__shellReady = applyWelcome;
   if (window.__MOOTS_SOURCE) applyWelcome(window.__MOOTS_SOURCE); // boot already finished
 
-  /* ---------------- publish + share to X ---------------- */
-  let publishedLink = null;
-  function showPublish() {
-    const self = window.__moots && window.__moots.data && window.__moots.data.self;
-    $('pub-who').textContent = self ? '@' + self + '’s' : 'this';
+  /* ---------------- share: live preview of the current view ---------------- */
+  async function capturePreview() {
+    publishedLink = null;                         // new capture -> needs a new publish
+    $('p-result').textContent = '';
+    $('pub-capturing').classList.remove('hide');
+    try {
+      currentBlob = await window.__moots.exportPNG(2);
+      const img = $('pub-preview');
+      if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+      const u = URL.createObjectURL(currentBlob);
+      img.dataset.url = u; img.src = u;
+    } catch (_) { currentBlob = null; }
+    $('pub-capturing').classList.add('hide');
+  }
+  async function showShare() {
+    $('p-checkwrap').style.display = '';
     $('publish').classList.remove('hide');
+    await capturePreview();                        // always reflect the current view
   }
   $('pclose').onclick = $('p-skip').onclick = () => $('publish').classList.add('hide');
+  $('p-recap').onclick = capturePreview;
 
-  // publish once (captures the current view as the preview image); returns the permalink
+  // publish the CURRENTLY-previewed image (so the link matches what they see)
   async function ensurePublished() {
     if (publishedLink) return publishedLink;
     const res = $('p-result');
     if (!$('p-public').checked) { res.textContent = 'tick “make it public” first ↑'; return null; }
     res.textContent = 'publishing…';
     try {
-      const data = window.__moots.data;
-      let png = null;
-      try { png = await window.__moots.exportPNG(2); } catch (_) {}
+      const png = currentBlob || await window.__moots.exportPNG(2);
       const fd = new FormData();
-      fd.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      fd.append('data', new Blob([JSON.stringify(window.__moots.data)], { type: 'application/json' }));
       if (png) fd.append('image', png, 'og.png');
       const r = await fetch('/share', { method: 'POST', body: fd });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const { id } = await r.json();
       publishedLink = location.origin + '/v/' + id;
-      // flip the panel into its "published" state
-      $('p-checkwrap').style.display = 'none';
-      $('pub-title').innerHTML = 'Published <span class="dot">✦</span>';
-      $('pub-desc').textContent = 'Anyone with this link can explore the map, and X shows this view as the preview image.';
-      $('p-skip').textContent = 'Done';
-      res.innerHTML = '<a href="' + publishedLink + '" target="_blank" rel="noopener" style="color:var(--accent2)">' + publishedLink.replace(/^https?:\/\//, '') + '</a>';
+      res.innerHTML = 'live → <a href="' + publishedLink + '" target="_blank" rel="noopener" style="color:var(--accent2)">' + publishedLink.replace(/^https?:\/\//, '') + '</a>';
       return publishedLink;
     } catch (e) {
       res.textContent = 'publishing failed — try again';
@@ -77,6 +85,14 @@
     if (!link) return;
     try { await navigator.clipboard.writeText(link); const r = $('p-result'); if (!/copied/.test(r.textContent)) r.innerHTML += ' <span style="color:var(--accent)">copied ✓</span>'; } catch (_) {}
   };
+  $('p-download').onclick = () => {
+    if (!currentBlob) return;
+    const self = (window.__moots.data && window.__moots.data.self) || 'moots';
+    const u = URL.createObjectURL(currentBlob);
+    const a = document.createElement('a'); a.href = u; a.download = `moots-${self}.png`; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 4000);
+  };
+  $('btn-shareopen').onclick = showShare;
   const dismissWelcome = () => { $('welcome').classList.add('hide'); try { localStorage.setItem('moots_seen', '1'); } catch (_) {} };
   $('wclose').onclick = dismissWelcome;
   $('w-dismiss').onclick = dismissWelcome;
@@ -254,8 +270,6 @@
       alert('Could not export the image.\n(' + e.message + ')\nTip: this needs to run over http(s), not a file:// page.');
     }
   });
-  // reopen the publish/share panel anytime (so "Keep private" isn't a one-way door)
-  $('dl-share').onclick = () => { dlmenu.classList.remove('show'); showPublish(); };
 
   /* ---------------- clear uploaded archive -> back to the demo ---------------- */
   $('btn-clear').onclick = () => {
