@@ -78,6 +78,14 @@ function sanitize(d) {
   return { self: d.self ? String(d.self).slice(0, 20) : null, selfName: String(d.selfName || '').slice(0, 80),
     totalTweets: +d.totalTweets | 0, totalPeople: +d.totalPeople | 0, people, links };
 }
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+}
+// Storage layout (lets the same person re-share many views without duplicating the data):
+//   data:<contentHash>  -> the aggregated tally, stored ONCE per unique dataset
+//   share:<id>          -> { d:<hash>, self, n, t }  (one small record per shared URL)
+//   img:<id>            -> the preview PNG (unique per URL)
 async function share(req, env) {
   if (!env.SHARES) return json({ error: 'sharing not configured' }, 501);
   let form; try { form = await req.formData(); } catch (_) { return json({ error: 'bad form' }, 400); }
@@ -86,32 +94,39 @@ async function share(req, env) {
   if (text.length > 6_000_000) return json({ error: 'too large' }, 413);
   let clean; try { clean = sanitize(JSON.parse(text)); } catch (_) { return json({ error: 'bad data' }, 400); }
 
+  const cleanStr = JSON.stringify(clean);
+  const dataHash = await sha256hex(cleanStr);
+  if (!(await env.SHARES.get('data:' + dataHash))) await env.SHARES.put('data:' + dataHash, cleanStr);   // dedup
+
   const id = genId();
-  await env.SHARES.put('d:' + id, JSON.stringify(clean), { metadata: { self: clean.self, n: clean.totalPeople } });
+  const rec = { d: dataHash, self: clean.self, n: clean.totalPeople, t: Date.now() };
+  await env.SHARES.put('share:' + id, JSON.stringify(rec), { metadata: { self: clean.self, n: clean.totalPeople, t: rec.t } });
   const image = form.get('image');
-  if (image && image.size && image.size < 3_000_000) await env.SHARES.put('i:' + id, await image.arrayBuffer());
+  if (image && image.size && image.size < 3_000_000) await env.SHARES.put('img:' + id, await image.arrayBuffer());
   return json({ id });
 }
 async function viewShare(req, env, id, sub, ctx) {
   if (!ID.test(id)) return new Response('bad id', { status: 400, headers: CORS });
   if (!env.SHARES) return new Response('sharing not configured', { status: 501, headers: CORS });
 
-  if (sub === '/data') {
-    const d = await env.SHARES.get('d:' + id);
-    if (!d) return json({ error: 'not found' }, 404);
-    return new Response(d, { headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' } });
-  }
   if (sub === '/og.png') {
-    const img = await env.SHARES.get('i:' + id, 'arrayBuffer');
+    const img = await env.SHARES.get('img:' + id, 'arrayBuffer');
     if (img) return new Response(img, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
     return Response.redirect(new URL('/og-default.png', req.url).toString(), 302);
   }
 
+  const rec = await env.SHARES.get('share:' + id, { type: 'json' });
+  if (!rec) return new Response('not found', { status: 404, headers: CORS });
+
+  if (sub === '/data') {
+    const d = await env.SHARES.get('data:' + rec.d);
+    if (!d) return json({ error: 'not found' }, 404);
+    return new Response(d, { headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' } });
+  }
+
   // base /v/:id -> serve the app HTML with OG meta injected
-  const meta = await env.SHARES.getWithMetadata('d:' + id, { type: 'json' });
-  if (!meta || !meta.value) return new Response('not found', { status: 404, headers: CORS });
-  const self = (meta.metadata && meta.metadata.self) || meta.value.self || 'someone';
-  const n = (meta.metadata && meta.metadata.n) || meta.value.totalPeople || 0;
+  const self = rec.self || 'someone';
+  const n = rec.n || 0;
   const origin = new URL(req.url).origin;
   const title = `@${self}'s Twitter constellation`;
   const desc = `${n.toLocaleString()} people · explore the map of who they talk to on Twitter — made with moots.fyi`;

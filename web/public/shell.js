@@ -42,18 +42,16 @@
     $('pub-capturing').classList.add('hide');
   }
   async function showShare() {
-    $('p-checkwrap').style.display = '';
     $('publish').classList.remove('hide');
     await capturePreview();                        // always reflect the current view
   }
-  $('pclose').onclick = $('p-skip').onclick = () => $('publish').classList.add('hide');
+  $('pclose').onclick = () => $('publish').classList.add('hide');
   $('p-recap').onclick = capturePreview;
 
   // publish the CURRENTLY-previewed image (so the link matches what they see)
   async function ensurePublished() {
     if (publishedLink) return publishedLink;
     const res = $('p-result');
-    if (!$('p-public').checked) { res.textContent = 'tick “make it public” first ↑'; return null; }
     res.textContent = 'publishing…';
     try {
       const png = currentBlob || await window.__moots.exportPNG(2);
@@ -84,13 +82,6 @@
     const link = await ensurePublished();
     if (!link) return;
     try { await navigator.clipboard.writeText(link); const r = $('p-result'); if (!/copied/.test(r.textContent)) r.innerHTML += ' <span style="color:var(--accent)">copied ✓</span>'; } catch (_) {}
-  };
-  $('p-download').onclick = () => {
-    if (!currentBlob) return;
-    const self = (window.__moots.data && window.__moots.data.self) || 'moots';
-    const u = URL.createObjectURL(currentBlob);
-    const a = document.createElement('a'); a.href = u; a.download = `moots-${self}.png`; a.click();
-    setTimeout(() => URL.revokeObjectURL(u), 4000);
   };
   $('btn-shareopen').onclick = showShare;
   const dismissWelcome = () => { $('welcome').classList.add('hide'); try { localStorage.setItem('moots_seen', '1'); } catch (_) {} };
