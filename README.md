@@ -32,7 +32,7 @@ tweet text.
 
 ## Deploy your own
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR-USERNAME/moots)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/huttj/moots)
 
 One click clones this repo into your Cloudflare account and deploys it (it provisions the KV
 namespace for you). Then point your domain at the Worker.

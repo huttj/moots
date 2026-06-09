@@ -173,7 +173,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('shot')) exitShot(); });
 
   $('s-reset').onclick = () => {
-    sSize.value = 3; sSpread.value = 1; sLabel.value = 9; sContrast.value = 1; sPack.value = 0;
+    sSize.value = 3; sSpread.value = 1; sLabel.value = 22; sContrast.value = 1; sPack.value = 0;
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.mode === 'spread'));
     if (window.__moots) window.__moots.setLayoutMode('spread');
     exitShot(); pushSettings();
