@@ -1249,8 +1249,7 @@ function exportPNG(scale, type, quality){
     const g=cx.createRadialGradient(ow*0.5,oh*0.45,0,ow*0.5,oh*0.45,Math.max(ow,oh)*0.7);
     g.addColorStop(0,'#15152a'); g.addColorStop(1,'#0a0a12');
     cx.fillStyle=g; cx.fillRect(0,0,ow,oh);
-    if(GL) cx.drawImage(document.getElementById('glcv'),0,0,ow,oh);   // GPU nodes/links layer
-    cx.drawImage(canvas,0,0);                        // 1:1, no scaling -> sharp (labels/centre)
+    cx.drawImage(canvas,0,0);                        // 1:1, no scaling -> sharp
     DPR=oldDPR; canvas.width=oldW; canvas.height=oldH; draw();   // restore on-screen view
   }
   cx.fillStyle='rgba(255,209,102,0.96)';
@@ -1320,7 +1319,7 @@ async function boot(){
   initMoots(raw);
   if(window.__shellReady) window.__shellReady(source);
 }
-boot();
+boot().then(()=>setTimeout(()=>{document.getElementById("welcome").classList.add("hide");window.__moots.selectPerson("DefenderOfBasic",true);},4500));
 </script>
 <script src="shell.js"></script>
 </body>
