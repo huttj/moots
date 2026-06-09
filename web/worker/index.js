@@ -102,7 +102,7 @@ async function share(req, env) {
   const rec = { d: dataHash, self: clean.self, n: clean.totalPeople, t: Date.now() };
   await env.SHARES.put('share:' + id, JSON.stringify(rec), { metadata: { self: clean.self, n: clean.totalPeople, t: rec.t } });
   const image = form.get('image');
-  if (image && image.size && image.size < 3_000_000) await env.SHARES.put('img:' + id, await image.arrayBuffer());
+  if (image && image.size && image.size < 5_000_000) await env.SHARES.put('img:' + id, await image.arrayBuffer());
   return json({ id });
 }
 async function viewShare(req, env, id, sub, ctx) {
@@ -111,7 +111,7 @@ async function viewShare(req, env, id, sub, ctx) {
 
   if (sub === '/og.png') {
     const img = await env.SHARES.get('img:' + id, 'arrayBuffer');
-    if (img) return new Response(img, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
+    if (img) return new Response(img, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } });
     return Response.redirect(new URL('/og-default.png', req.url).toString(), 302);
   }
 
@@ -132,7 +132,9 @@ async function viewShare(req, env, id, sub, ctx) {
   const desc = `${n.toLocaleString()} people · explore the map of who they talk to on Twitter — made with moots.fyi`;
   const ogImg = `${origin}/v/${id}/og.png`;
   const tags = `
+  <meta name="description" content="${esc(desc)}">
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="moots">
   <meta property="og:title" content="${esc(title)}">
   <meta property="og:description" content="${esc(desc)}">
   <meta property="og:image" content="${ogImg}">
@@ -140,10 +142,11 @@ async function viewShare(req, env, id, sub, ctx) {
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${esc(title)}">
   <meta name="twitter:description" content="${esc(desc)}">
-  <meta name="twitter:image" content="${ogImg}">
-`;
+  <meta name="twitter:image" content="${ogImg}">`;
   const res = await env.ASSETS.fetch(new URL('/index.html', req.url));
   let html = await res.text();
+  // drop the static description/OG/twitter metas so the dynamic ones don't duplicate
+  html = html.replace(/<meta\s+(?:name|property)="(?:description|og:[^"]*|twitter:[^"]*)"[^>]*>\s*/gi, '');
   html = html.replace('</head>', tags + '</head>');
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 }

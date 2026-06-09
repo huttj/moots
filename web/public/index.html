@@ -7,6 +7,17 @@
 <title>moots — your Twitter constellation</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="favicon.svg">
+<meta name="description" content="Turn your Twitter/X archive into a zoomable constellation of everyone you talk to. Parsed in your browser — nothing is uploaded.">
+<meta property="og:site_name" content="moots">
+<meta property="og:type" content="website">
+<meta property="og:title" content="moots — your Twitter constellation">
+<meta property="og:description" content="Everyone you talk to on Twitter, as a zoomable constellation. Drop your archive — it's parsed in your browser, nothing uploaded.">
+<meta property="og:url" content="https://moots.fyi/">
+<meta property="og:image" content="https://moots.fyi/og-default.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="moots — your Twitter constellation">
+<meta name="twitter:description" content="Everyone you talk to on Twitter, as a zoomable constellation.">
+<meta name="twitter:image" content="https://moots.fyi/og-default.png">
 <style>
   :root{
     --bg:#0a0a12; --bg2:#11111d; --panel:#16162400; --ink:#e9e9f2; --dim:#9a9ab0;
@@ -157,6 +168,26 @@
   .wclose{position:absolute;right:12px;top:11px;width:26px;height:26px;border:0;border-radius:50%;
     background:rgba(255,255,255,.06);color:var(--dim);cursor:pointer;font-size:15px}
 
+  /* ---- "see yours" / how-to popover ---- */
+  .modalbg{position:fixed;inset:0;z-index:55;display:flex;align-items:center;justify-content:center;
+    background:rgba(8,8,16,.72);backdrop-filter:blur(4px);padding:20px}
+  .modalbg.hide{display:none}
+  .howcard{position:relative;width:min(520px,94vw);max-height:88vh;overflow-y:auto;
+    background:rgba(18,18,30,.98);border:1px solid var(--line);border-radius:16px;padding:22px 24px;
+    box-shadow:0 24px 70px rgba(0,0,0,.6)}
+  .howcard h2{margin:0 0 14px;font-size:20px}
+  .upload-cta{display:block;width:100%;text-align:left;cursor:pointer;border:1.5px dashed var(--accent2);
+    background:rgba(122,162,255,.08);color:var(--ink);border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.5}
+  .upload-cta:hover{background:rgba(122,162,255,.15)}
+  .upload-cta .u{color:var(--accent2);text-decoration:underline}
+  .how-sub{margin:18px 0 8px;font-size:13.5px;color:var(--dim)}
+  .how-steps{margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;color:#c9c9da}
+  .how-steps b{color:var(--ink)}
+  .how-steps a{color:var(--accent2);text-decoration:none}
+  .how-ca{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-size:13px;color:#c9c9da}
+  .how-ca a{color:var(--accent2);text-decoration:none}
+  .howcard code{background:#0a0a12;border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:12px}
+
   /* ---- drop overlay ---- */
   .drop{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
     background:rgba(8,8,16,.82);backdrop-filter:blur(4px)}
@@ -198,6 +229,12 @@
   .spin{width:34px;height:34px;border:3px solid #2a2a3e;border-top-color:var(--accent);border-radius:50%;
     animation:sp 0.8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
+  /* flashing diagonal gradient on a button while it's loading */
+  .btn-loading{pointer-events:none;position:relative;overflow:hidden}
+  .btn-loading::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.4) 50%,transparent 70%);
+    background-size:220% 100%;animation:btnshine .85s linear infinite}
+  @keyframes btnshine{to{background-position:-220% 0}}
 
   /* clean-screenshot mode: hide UI chrome */
   body.shot header,body.shot .legend,body.shot .cc,body.shot .info,body.shot .welcome,
@@ -218,9 +255,9 @@
     <button id="tab-const" class="active">Constellation</button>
     <button id="tab-hist">Histogram</button>
   </div>
-  <button class="hbtn primary" id="btn-upload">↑ Your archive</button>
+  <button class="hbtn primary" id="btn-upload">See yours</button>
   <button class="hbtn" id="btn-clear" title="Clear this archive and return to the demo" style="display:none">✕ clear</button>
-  <button class="hbtn icon" id="btn-settings" title="Display settings">⚙</button>
+  <button class="hbtn icon" id="btn-settings" title="Display settings" style="font-size:18px">⚙</button>
   <button class="hbtn icon" id="btn-share" title="Save image">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
   </button>
@@ -294,7 +331,7 @@
   <b>color = recency</b>. Drag to pan, scroll to zoom, click a star.</p>
   <div class="actions">
     <button class="hbtn primary" id="w-upload">↑ Drop your own archive</button>
-    <a class="hbtn" href="how.html" target="_blank" rel="noopener" style="text-decoration:none">How to get it →</a>
+    <button class="hbtn" id="w-how">How to get it →</button>
     <button class="hbtn" id="w-dismiss">Explore this one</button>
     <span class="tiny">parsed in your browser — nothing is uploaded</span>
   </div>
@@ -317,12 +354,30 @@
   </div>
 </div>
 
+<!-- "See yours" / how-to popover -->
+<div class="modalbg hide" id="howmodal">
+  <div class="howcard">
+    <button class="wclose" id="howclose" title="close">×</button>
+    <h2>See your constellation <span class="dot">✦</span></h2>
+    <button class="upload-cta" id="how-upload">
+      <b>Have your archive handy?</b> Drop it anywhere on this page, or <span class="u">click here to open it</span>.
+    </button>
+    <div class="how-sub">Don't have it yet? Here's how to get your Twitter / X archive:</div>
+    <ol class="how-steps">
+      <li><b>Request it.</b> On X: <b>Settings → Your account → Download an archive of your data</b> (<a href="https://x.com/settings/download_your_data" target="_blank" rel="noopener">open ↗</a>). It takes about a day.</li>
+      <li><b>Download the .zip</b> when X notifies you it's ready.</li>
+      <li><b>Drop it here</b> — the whole <code>.zip</code>, the <code>tweets.js</code> inside it, or a Community Archive <code>.json</code>. Everything is parsed in your browser; nothing is uploaded.</li>
+    </ol>
+    <div class="how-ca">✦ Already in the <a href="https://www.community-archive.org/" target="_blank" rel="noopener">Community Archive</a>? Download your <code>archive.json</code> from there and drop it straight in.</div>
+  </div>
+</div>
+
 <!-- drag-and-drop overlay -->
 <div class="drop" id="drop">
   <div class="box">
     <div class="big">Drop your Twitter archive</div>
     <div class="small">tweets.js · the archive .zip · or a Community Archive .json — parsed locally, never uploaded</div>
-    <div class="small" style="margin-top:10px">don't have it yet? <a href="how.html" target="_blank" rel="noopener" style="color:var(--accent2)">how to download your archive →</a></div>
+    <div class="small" style="margin-top:10px">don't have it yet? <button id="d-how" style="background:none;border:0;color:var(--accent2);cursor:pointer;font:inherit;padding:0;text-decoration:underline">how to download your archive →</button></div>
   </div>
 </div>
 
@@ -1112,8 +1167,8 @@ function setLayoutMode(m){
 }
 
 // ---- export the constellation as a PNG (for sharing / OG image) ----
-function exportPNG(scale){
-  scale = scale||2;
+function exportPNG(scale, type, quality){
+  scale = scale||2; type = type||'image/png';
   // RE-RENDER the scene at `scale` device-pixel density (not an upscale of the screen
   // bitmap): temporarily bump the canvas resolution, redraw, snapshot, then restore.
   const oldDPR=DPR, oldW=canvas.width, oldH=canvas.height;
@@ -1133,17 +1188,15 @@ function exportPNG(scale){
     cx.drawImage(canvas,0,0);                        // 1:1, no scaling -> sharp
     DPR=oldDPR; canvas.width=oldW; canvas.height=oldH; draw();   // restore on-screen view
   }
-  cx.fillStyle='rgba(255,209,102,0.92)';
-  cx.font=`700 ${Math.round(15*scale)}px -apple-system,sans-serif`;
+  cx.fillStyle='rgba(255,209,102,0.96)';
+  cx.font=`800 ${Math.round(21*scale)}px -apple-system,sans-serif`;
   cx.textAlign='right'; cx.textBaseline='bottom';
-  cx.fillText('moots.fyi', ow-18*scale, oh-14*scale);
-  if(DATA.self){
-    cx.fillStyle='rgba(154,154,176,0.9)';
-    cx.font=`500 ${Math.round(12*scale)}px -apple-system,sans-serif`;
-    cx.textAlign='left';
-    cx.fillText('@'+DATA.self+"'s constellation", 18*scale, oh-14*scale);
-  }
-  return new Promise((res,rej)=>{ try{ c.toBlob(b=> b?res(b):rej(new Error('toBlob failed')),'image/png'); }catch(e){ rej(e); } });
+  cx.fillText('moots.fyi', ow-20*scale, oh-16*scale);
+  cx.fillStyle='rgba(233,233,242,0.92)';
+  cx.font=`600 ${Math.round(15*scale)}px -apple-system,sans-serif`;
+  cx.textAlign='left';
+  cx.fillText((DATA.self ? '@'+DATA.self+"'s" : 'a') + ' Twitter constellation', 20*scale, oh-16*scale);
+  return new Promise((res,rej)=>{ try{ c.toBlob(b=> b?res(b):rej(new Error('toBlob failed')), type, quality); }catch(e){ rej(e); } });
 }
 
 // expose hooks for the shell

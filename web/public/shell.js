@@ -33,7 +33,7 @@
     $('p-result').textContent = '';
     $('pub-capturing').classList.remove('hide');
     try {
-      currentBlob = await window.__moots.exportPNG(2);
+      currentBlob = await window.__moots.exportPNG(2, 'image/jpeg', 0.9);   // jpeg: small enough to always store
       const img = $('pub-preview');
       if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
       const u = URL.createObjectURL(currentBlob);
@@ -53,11 +53,12 @@
     if (publishedLink) return publishedLink;
     const res = $('p-result');
     res.textContent = 'publishing…';
+    busy('publishing your constellation…');         // dim + block the page with a prominent indicator
     try {
-      const png = currentBlob || await window.__moots.exportPNG(2);
+      const png = currentBlob || await window.__moots.exportPNG(2, 'image/jpeg', 0.9);
       const fd = new FormData();
       fd.append('data', new Blob([JSON.stringify(window.__moots.data)], { type: 'application/json' }));
-      if (png) fd.append('image', png, 'og.png');
+      if (png) fd.append('image', png, 'og.jpg');
       const r = await fetch('/share', { method: 'POST', body: fd });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const { id } = await r.json();
@@ -67,32 +68,49 @@
     } catch (e) {
       res.textContent = 'publishing failed — try again';
       return null;
+    } finally {
+      unbusy();
     }
   }
 
-  $('p-share').onclick = async () => {
+  // run an async action with the clicked button disabled + a loading shimmer
+  async function withLoading(btn, fn) {
+    btn.classList.add('btn-loading'); btn.disabled = true;
+    try { return await fn(); } finally { btn.classList.remove('btn-loading'); btn.disabled = false; }
+  }
+  $('p-share').onclick = () => withLoading($('p-share'), async () => {
     const link = await ensurePublished();
     if (!link) return;
     const self = window.__moots.data && window.__moots.data.self;
     const text = (self ? '@' + self + '’s' : 'My') + ' Twitter constellation ✦';
     const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(link);
     window.open(url, '_blank', 'noopener,width=600,height=660');
-  };
-  $('p-copy').onclick = async () => {
+  });
+  $('p-copy').onclick = () => withLoading($('p-copy'), async () => {
     const link = await ensurePublished();
     if (!link) return;
     try { await navigator.clipboard.writeText(link); const r = $('p-result'); if (!/copied/.test(r.textContent)) r.innerHTML += ' <span style="color:var(--accent)">copied ✓</span>'; } catch (_) {}
-  };
+  });
   $('btn-shareopen').onclick = showShare;
   const dismissWelcome = () => { $('welcome').classList.add('hide'); try { localStorage.setItem('moots_seen', '1'); } catch (_) {} };
   $('wclose').onclick = dismissWelcome;
   $('w-dismiss').onclick = dismissWelcome;
 
-  /* ---------------- file upload + parse ---------------- */
+  /* ---------------- file upload + "how to" popover ---------------- */
   const fileInput = $('file-input');
-  $('btn-upload').onclick = () => fileInput.click();
-  $('w-upload').onclick = () => fileInput.click();
+  const openPicker = () => fileInput.click();
   fileInput.onchange = e => { if (e.target.files[0]) handleFiles(e.target.files); };
+
+  const howmodal = $('howmodal');
+  const showHow = () => howmodal.classList.remove('hide');
+  const hideHow = () => howmodal.classList.add('hide');
+  $('btn-upload').onclick = showHow;                         // "See yours" -> popover
+  $('w-how').onclick = showHow;                              // welcome "How to get it"
+  $('d-how').onclick = showHow;                              // drop overlay link
+  $('howclose').onclick = hideHow;
+  howmodal.onclick = e => { if (e.target === howmodal) hideHow(); };   // backdrop click
+  $('how-upload').onclick = () => { hideHow(); openPicker(); };        // CTA -> file picker
+  $('w-upload').onclick = openPicker;                        // welcome "Drop your own archive"
 
   // drag & drop anywhere
   const drop = $('drop');
