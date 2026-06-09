@@ -1187,7 +1187,7 @@ async function boot(){
   initMoots(raw);
   if(window.__shellReady) window.__shellReady(source);
 }
-boot();
+boot().then(()=>{document.title="BOOTOK:"+window.__moots.data.people.length;}).catch(e=>{document.title="FAIL:"+e.message;});
 </script>
 <script src="shell.js"></script>
 </body>
