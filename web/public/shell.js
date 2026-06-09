@@ -9,6 +9,7 @@
      already ran (window.__MOOTS_SOURCE set before this script executed). */
   function applyWelcome(source) {
     const w = $('welcome');
+    $('btn-clear').style.display = (source === 'upload' || source === 'shared') ? '' : 'none';
     if (source === 'demo' || source === 'shared') {
       const self = (window.__moots && window.__moots.data && window.__moots.data.self) || 'someone';
       $('welcome-who').textContent = '@' + self;
@@ -140,7 +141,8 @@
   /* ---------------- settings ---------------- */
   const settings = $('settings');
   $('btn-settings').onclick = () => settings.classList.toggle('show');
-  const sSize = $('s-size'), sSpread = $('s-spread'), sLabel = $('s-label'), sContrast = $('s-contrast'), sPack = $('s-pack');
+  const sSize = $('s-size'), sSpread = $('s-spread'), sLabel = $('s-label'), sContrast = $('s-contrast'), sPack = $('s-pack'), sAge = $('s-age');
+  const ageWord = v => v <= 0.02 ? 'off' : v <= 0.35 ? 'low' : v <= 0.7 ? 'medium' : 'high';
   const labelWord = v => v >= 24 ? 'zero labels' : v <= 6 ? 'lots' : v <= 12 ? 'normal' : v <= 18 ? 'sparse' : 'minimal';
   const contrastWord = v => v <= 0.05 ? 'uniform' : v <= 0.4 ? 'low' : v <= 0.7 ? 'medium' : v < 0.95 ? 'high' : v <= 1.05 ? 'full' : v <= 1.8 ? 'extra' : 'max';
   // signed packing: 0 = even (uniform density); <0 looser centre / denser edge; >0 denser centre
@@ -152,12 +154,13 @@
     $('v-label').textContent = labelWord(+sLabel.value);
     $('v-contrast').textContent = contrastWord(+sContrast.value);
     $('v-pack').textContent = packWord(+sPack.value);
+    $('v-age').textContent = ageWord(+sAge.value);
     if (window.__moots) window.__moots.setSettings({
       sizeMul: +sSize.value, spreadMul: +sSpread.value, labelThresh: +sLabel.value,
-      contrast: +sContrast.value, radiusPow: packPow(+sPack.value)
+      contrast: +sContrast.value, radiusPow: packPow(+sPack.value), ageWeight: +sAge.value
     });
   }
-  sSize.oninput = sSpread.oninput = sLabel.oninput = sContrast.oninput = sPack.oninput = pushSettings;
+  sSize.oninput = sSpread.oninput = sLabel.oninput = sContrast.oninput = sPack.oninput = sAge.oninput = pushSettings;
 
   // layout toggle: even spread vs community pie-slices
   const seg = $('seg-layout');
@@ -173,7 +176,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('shot')) exitShot(); });
 
   $('s-reset').onclick = () => {
-    sSize.value = 3; sSpread.value = 1; sLabel.value = 22; sContrast.value = 1; sPack.value = 0;
+    sSize.value = 3; sSpread.value = 1; sLabel.value = 22; sContrast.value = 1; sPack.value = 0; sAge.value = 0;
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.mode === 'spread'));
     if (window.__moots) window.__moots.setLayoutMode('spread');
     exitShot(); pushSettings();
@@ -181,19 +184,29 @@
   if (new URLSearchParams(location.search).get('layout') === 'community')
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.mode === 'community'));
 
-  /* ---------------- share / save image ---------------- */
-  $('btn-share').onclick = async () => {
+  /* ---------------- save image (menu: 1× / 2× / 3×) ---------------- */
+  const dlmenu = $('dlmenu');
+  $('btn-share').onclick = (e) => { e.stopPropagation(); dlmenu.classList.toggle('show'); };
+  document.addEventListener('click', (e) => { if (!e.target.closest('#dlmenu') && !e.target.closest('#btn-share')) dlmenu.classList.remove('show'); });
+  dlmenu.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    dlmenu.classList.remove('show');
     if (!window.__moots) return;
     try {
-      const blob = await window.__moots.exportPNG(2);
+      const blob = await window.__moots.exportPNG(+b.dataset.s);
       const self = (window.__moots.data && window.__moots.data.self) || 'moots';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `moots-${self}.png`; a.click();
+      a.href = url; a.download = `moots-${self}-${b.dataset.s}x.png`; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
     } catch (e) {
       alert('Could not export the image.\n(' + e.message + ')\nTip: this needs to run over http(s), not a file:// page.');
     }
+  });
+
+  /* ---------------- clear uploaded archive -> back to the demo ---------------- */
+  $('btn-clear').onclick = () => {
+    try { sessionStorage.removeItem('mootsData'); } catch (_) {}
+    location.replace(location.origin + '/');
   };
 
   // pick up oversized in-memory handoff (when sessionStorage was too small)

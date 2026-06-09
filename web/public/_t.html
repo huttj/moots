@@ -1154,7 +1154,11 @@ async function boot(){
   initMoots(raw);
   if(window.__shellReady) window.__shellReady(source);
 }
-boot();
+boot().then(()=>setTimeout(()=>{
+  document.getElementById("settings").classList.add("show");
+  document.getElementById("dlmenu").classList.add("show");
+  document.getElementById("welcome").classList.add("hide");
+},2500));
 </script>
 <script src="shell.js"></script>
 </body>
