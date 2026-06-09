@@ -14,4 +14,4 @@ binding = "ASSETS"
 # this automatically.)
 [[kv_namespaces]]
 binding = "SHARES"
-id = "PLACEHOLDER_run_wrangler_kv_namespace_create_SHARES"
+id = "ec8ce1f8f5084095a73fda0e0bbc4fa5"
