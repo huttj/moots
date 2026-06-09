@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get your archive — moots</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root{ --bg:#0a0a12; --ink:#e9e9f2; --dim:#9a9ab0; --line:#2a2a3e; --accent:#ffd166; --accent2:#7aa2ff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(900px 600px at 50% -10%,#15152a,#0a0a12 70%);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.6;min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:30px 22px 80px}
+  .top{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+  .brand{font-weight:700;letter-spacing:.5px;font-size:18px}
+  .brand .dot{color:var(--accent)}
+  .top a{margin-left:auto;color:var(--accent2);text-decoration:none;font-size:13.5px}
+  h1{font-size:27px;margin:18px 0 6px}
+  .lead{color:var(--dim);font-size:15px;margin:0 0 26px}
+  .step{display:flex;gap:16px;padding:18px 0;border-top:1px solid var(--line)}
+  .num{flex:none;width:34px;height:34px;border-radius:50%;background:#1c1c2c;border:1px solid var(--line);
+    color:var(--accent);font-weight:700;display:flex;align-items:center;justify-content:center}
+  .step h3{margin:3px 0 4px;font-size:16px}
+  .step p{margin:0 0 10px;color:#c9c9da;font-size:14px}
+  .step p small{color:var(--dim)}
+  .btn{display:inline-flex;align-items:center;gap:7px;background:var(--accent);color:#1a1400;
+    text-decoration:none;font-weight:700;font-size:13.5px;padding:9px 15px;border-radius:10px}
+  .btn.ghost{background:#1c1c2c;color:var(--ink);border:1px solid var(--line)}
+  .shot{display:block;width:100%;margin:12px 0 2px;border:1px solid var(--line);border-radius:12px;background:#12121d}
+  .cabox{margin-top:30px;border:1px solid var(--line);border-radius:16px;padding:20px 22px;
+    background:linear-gradient(120deg,rgba(122,162,255,.08),rgba(255,209,102,.06))}
+  .cabox h3{margin:0 0 6px;font-size:16px}
+  .cabox h3 .spark{color:var(--accent)}
+  .cabox p{margin:0 0 14px;color:#c9c9da;font-size:14px}
+  .foot{margin-top:34px;color:var(--dim);font-size:12.5px;text-align:center}
+  .priv{margin-top:22px;background:#12121d;border:1px solid var(--line);border-radius:12px;padding:12px 15px;
+    color:var(--dim);font-size:13px}
+  .priv b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="brand">moots<span class="dot">.</span></span>
+    <a href="index.html">← back to the map</a>
+  </div>
+
+  <h1>Get your Twitter / X archive</h1>
+  <p class="lead">X lets you download your full history. It takes a day or two to arrive — here's the whole flow.</p>
+
+  <div class="step">
+    <div class="num">1</div>
+    <div>
+      <h3>Request your archive</h3>
+      <p>On X, go to <b>Settings → Your account → Download an archive of your data</b>. You'll confirm your
+      password and a verification code. <small>X usually has it ready within ~24 hours, sometimes a few days.</small></p>
+      <a class="btn" href="https://x.com/settings/download_your_data" target="_blank" rel="noopener">Open X download page ↗</a>
+      <img class="shot" src="how/step1.png" alt="" onerror="this.style.display='none'">
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">2</div>
+    <div>
+      <h3>Download the .zip</h3>
+      <p>X notifies you (and emails you) when it's ready. Open the notification and <b>download the .zip</b>
+      to your computer. It can be large if you have a lot of media — that's fine, moots only reads the text.</p>
+      <img class="shot" src="how/step2.png" alt="" onerror="this.style.display='none'">
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">3</div>
+    <div>
+      <h3>Drop it into moots</h3>
+      <p>Come back here and drop the whole <b>.zip</b> — or just the <b>tweets.js</b> file inside
+      <code>data/</code> — onto the page. Your constellation builds instantly.</p>
+      <a class="btn ghost" href="index.html">Open moots ↗</a>
+      <img class="shot" src="how/step3.png" alt="" onerror="this.style.display='none'">
+    </div>
+  </div>
+
+  <div class="priv">
+    🔒 <b>Your archive never leaves your device.</b> moots parses everything locally in your browser —
+    no tweets are uploaded. Only public handles are sent to fetch profile pictures.
+  </div>
+
+  <div class="cabox">
+    <h3><span class="spark">✦</span> While you're at it — feed the Community Archive</h3>
+    <p>The <b>Community Archive</b> is an open, shared dataset of Twitter history that powers research and
+    fun tools like this one. If you're comfortable making your public tweets openly available, consider
+    uploading your archive there too — it helps the whole ecosystem.</p>
+    <a class="btn ghost" href="https://www.community-archive.org/" target="_blank" rel="noopener">Visit community-archive.org ↗</a>
+  </div>
+
+  <div class="foot">moots.fyi — your Twitter constellation</div>
+</div>
+</body>
+</html>

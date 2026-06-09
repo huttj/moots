@@ -1,0 +1,29 @@
+# ── personal Twitter/X archive — NEVER commit ──────────────────────
+/tweets.json
+/tweets.js
+/note-tweet.json
+/note-tweet.js
+/handles.txt
+
+# ── original local prototype (the shippable app lives in web/) ──────
+/moots.json
+/moots.data.js
+/banners.js
+/d3.min.js
+/index.html
+/avatars/
+/*.sh
+/*.log
+/fetch_*.sh
+/backfill.sh
+/pull_*.sh
+
+# ── tooling ─────────────────────────────────────────────────────────
+node_modules/
+.wrangler/
+.dev.vars
+.DS_Store
+dist/
+
+# raw banner intermediate (banners.js is the one the app uses)
+/banners.tsv

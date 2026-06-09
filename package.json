@@ -1,0 +1,13 @@
+{
+  "name": "moots",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turn your Twitter/X archive into a zoomable constellation of everyone you talk to.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.20.0"
+  }
+}
