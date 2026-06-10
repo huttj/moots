@@ -498,11 +498,11 @@
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();   // also suppresses the range input's native ±1 stepping
       // the filter buckets by month, so that's the meaningful step: arrows move one
-      // month, Shift+arrows five (in slider units of the archive's actual span)
+      // month, Shift+arrows a quarter (in slider units of the archive's actual span)
       const bn = window.__moots && window.__moots.timeBounds;
       const months = bn ? Math.max(1, (bn.max - bn.min) / (30.44 * 86400e3)) : 120;
       const unit = Math.max(1, Math.round(1000 / months));
-      nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? unit * 5 : unit));
+      nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? unit * 3 : unit));
     } else if (e.key === 'Escape') { setSelPart(null); if (e.target.blur) e.target.blur(); }
   });
   document.addEventListener('click', e => { if (!e.target.closest('.dual')) setSelPart(null); });
