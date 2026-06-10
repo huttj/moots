@@ -161,20 +161,120 @@
     throw lastErr;
   }
 
+  /* ---- minimal zip reader. Two reasons it exists instead of jszip alone:
+     1) Twitter archives >4GB (or >65k files) are written as ZIP64 — jszip can't read
+        those ("expected N records in central dir, got 0").
+     2) it extracts entries via File.slice + native DecompressionStream, so a multi-GB
+        archive never has to fit in memory; we only pull out the few .js files we need. */
+  async function zipExtract(file, want) {              // want(name) -> bool; returns Map(name -> text)
+    const u8 = async (start, len) => new Uint8Array(await file.slice(start, start + len).arrayBuffer());
+    // end-of-central-directory record: in the last 64KB (max comment) + 22
+    const tailLen = Math.min(file.size, 65557);
+    const tail = await u8(file.size - tailLen, tailLen);
+    let eocd = -1;
+    for (let i = tail.length - 22; i >= 0; i--)
+      if (tail[i] === 0x50 && tail[i + 1] === 0x4b && tail[i + 2] === 0x05 && tail[i + 3] === 0x06) { eocd = i; break; }
+    if (eocd < 0) throw new Error('not a zip (no end-of-central-directory record)');
+    const eocdAbs = file.size - tailLen + eocd;
+    const dv = new DataView(tail.buffer);
+    let count = dv.getUint16(eocd + 10, true);
+    let cdSize = dv.getUint32(eocd + 12, true);
+    let cdOff = dv.getUint32(eocd + 16, true);
+    let cdEndAbs = eocdAbs;
+    if (count === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) {
+      // ZIP64: real values live in the zip64 EOCD; its locator sits just before the EOCD
+      const loc = eocd - 20;
+      if (loc < 0 || dv.getUint32(loc, true) !== 0x07064b50) throw new Error('zip64 archive missing its locator record');
+      const z64Abs = Number(dv.getBigUint64(loc + 8, true));
+      const z = new DataView((await u8(z64Abs, 56)).buffer);
+      if (z.getUint32(0, true) !== 0x06064b50) throw new Error('bad zip64 end-of-central-directory record');
+      count = Number(z.getBigUint64(32, true));
+      cdSize = Number(z.getBigUint64(40, true));
+      cdOff = Number(z.getBigUint64(48, true));
+      cdEndAbs = z64Abs;
+    }
+    // archives just over 4GB written WITHOUT zip64 store offsets mod 2^32 (this is the
+    // "expected N records in central dir, got 0" family of failures). The central
+    // directory always ends exactly where the (zip64) EOCD begins, so derive its true
+    // start structurally and trust that over the stored offset.
+    const cdStart = cdEndAbs - cdSize >= 0 ? cdEndAbs - cdSize : cdOff;
+    // walk the central directory, picking the entries we want
+    const cd = await u8(cdStart, cdSize), cdv = new DataView(cd.buffer), td = new TextDecoder();
+    const found = [];
+    let bias = 0, prevLho = -1;                      // un-wrap per-entry 4GB offset wraps
+    for (let i = 0, p = 0; i < count && p + 46 <= cd.length; i++) {
+      if (cdv.getUint32(p, true) !== 0x02014b50) throw new Error('corrupted central directory (entry ' + i + ' of ' + count + ')');
+      const method = cdv.getUint16(p + 10, true);
+      let csize = cdv.getUint32(p + 20, true), usize = cdv.getUint32(p + 24, true);
+      const nLen = cdv.getUint16(p + 28, true), eLen = cdv.getUint16(p + 30, true), cLen = cdv.getUint16(p + 32, true);
+      let lho = cdv.getUint32(p + 42, true);
+      const name = td.decode(cd.subarray(p + 46, p + 46 + nLen));
+      if (csize === 0xffffffff || usize === 0xffffffff || lho === 0xffffffff) {
+        // zip64 extra field (id 0x0001): one 8-byte value per 0xffffffff field, in this order
+        for (let q = p + 46 + nLen, qEnd = q + eLen; q + 4 <= qEnd;) {
+          const id = cdv.getUint16(q, true), sz = cdv.getUint16(q + 2, true);
+          if (id === 0x0001) {
+            let r = q + 4;
+            if (usize === 0xffffffff) { usize = Number(cdv.getBigUint64(r, true)); r += 8; }
+            if (csize === 0xffffffff) { csize = Number(cdv.getBigUint64(r, true)); r += 8; }
+            if (lho === 0xffffffff) { lho = Number(cdv.getBigUint64(r, true)); }
+            break;
+          }
+          q += 4 + sz;
+        }
+      }
+      lho += bias;
+      if (lho < prevLho) { bias += 0x100000000; lho += 0x100000000; }   // wrapped at a 4GB boundary
+      prevLho = lho;
+      if (want(name)) found.push({ name, method, csize, lho });
+      p += 46 + nLen + eLen + cLen;
+    }
+    // pull each wanted entry out of the file and inflate it
+    const out = new Map();
+    for (const f of found) {
+      let off = f.lho;
+      let lh = new DataView((await u8(off, 30)).buffer);
+      while (lh.getUint32(0, true) !== 0x04034b50 && off + 0x100000000 + 30 <= file.size) {
+        off += 0x100000000;                          // residual 4GB wrap the monotonic pass missed
+        lh = new DataView((await u8(off, 30)).buffer);
+      }
+      if (lh.getUint32(0, true) !== 0x04034b50) throw new Error('bad local header for ' + f.name);
+      const dataOff = off + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      const blob = file.slice(dataOff, dataOff + f.csize);
+      let text;
+      if (f.method === 0) text = await blob.text();
+      else if (f.method === 8) {
+        if (typeof DecompressionStream === 'undefined') throw new Error('this browser cannot decompress zips — extract data/tweets.js from the archive and drop that in instead');
+        text = await new Response(blob.stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+      } else throw new Error('unsupported compression (method ' + f.method + ') for ' + f.name);
+      out.set(f.name, text);
+    }
+    return out;
+  }
+
   async function readArchive(files) {
     let tweets = null, notes = null, account = null;
     const addTweets = arr => { tweets = (tweets || []).concat(arr); };
     for (const f of files) {
       const name = f.name.toLowerCase();
       if (name.endsWith('.zip')) {
-        if (!window.JSZip) throw new Error('zip support failed to load — try dropping tweets.js / the JSON directly');
-        const zip = await window.JSZip.loadAsync(f);
-        const entries = Object.keys(zip.files);
-        const tw = entries.filter(n => /(^|\/)tweets(-part\d+)?\.(js|json)$/i.test(n)).sort();
-        const nt = entries.filter(n => /(^|\/)note-tweet\.(js|json)$/i.test(n));
+        const isTweets = n => /(^|\/)tweets(-part\d+)?\.(js|json)$/i.test(n);
+        const isNotes = n => /(^|\/)note-tweet\.(js|json)$/i.test(n);
+        let texts;
+        try {
+          texts = await zipExtract(f, n => isTweets(n) || isNotes(n));
+        } catch (e1) {
+          // odd-but-valid zip our mini reader rejects: let jszip try before giving up
+          if (!window.JSZip) throw e1;
+          const zip = await window.JSZip.loadAsync(f);
+          texts = new Map();
+          for (const n of Object.keys(zip.files)) if (isTweets(n) || isNotes(n)) texts.set(n, await zip.files[n].async('string'));
+        }
+        const tw = [...texts.keys()].filter(isTweets).sort();
+        const nt = [...texts.keys()].filter(isNotes);
         if (!tw.length) throw new Error('no tweets.js found inside the zip');
-        for (const e of tw) addTweets(parseJSONLoose(await zip.files[e].async('string')));
-        if (nt.length) notes = parseJSONLoose(await zip.files[nt[0]].async('string'));
+        for (const e of tw) addTweets(parseJSONLoose(texts.get(e)));
+        if (nt.length) notes = parseJSONLoose(texts.get(nt[0]));
       } else {
         // a .js / .json file: raw export part (array) OR a Community Archive (object)
         const val = parseJSONLoose(await readFileText(f));
