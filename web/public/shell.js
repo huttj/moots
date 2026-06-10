@@ -454,8 +454,9 @@
   let selPart = null;   // 'a' | 'b' | 'win' | null
   function setSelPart(p) {
     selPart = p;
-    for (const el of [tMinEl, hMinEl]) if (el) el.classList.toggle('selpart', p === 'a');
-    for (const el of [tMaxEl, hMaxEl]) if (el) el.classList.toggle('selpart', p === 'b');
+    // 'win' halos both dots too — a stacked pair has a zero-width fill, which can't show a halo
+    for (const el of [tMinEl, hMinEl]) if (el) el.classList.toggle('selpart', p === 'a' || p === 'win');
+    for (const el of [tMaxEl, hMaxEl]) if (el) el.classList.toggle('selpart', p === 'b' || p === 'win');
     for (const el of [tFill, hFill]) if (el) el.classList.toggle('selpart', p === 'win');
   }
   function nudge(dv) {
