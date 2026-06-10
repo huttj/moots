@@ -465,7 +465,9 @@
   // --- timeline keyboard control: click a dot or the bar to select it (subtle gold halo),
   //     then ←/→ nudges it; Shift+←/→ moves faster; Esc or clicking elsewhere deselects ---
   let selPart = null;   // 'a' | 'b' | 'win' | null
+  let winVA = null, winW = null;   // window squish state: virtual left edge + remembered width
   function setSelPart(p) {
+    if (p === 'win') { winVA = +tMinEl.value; winW = +tMaxEl.value - +tMinEl.value; }
     selPart = p;
     // 'win' halos both dots too — a stacked pair has a zero-width fill, which can't show a halo
     for (const el of [tMinEl, hMinEl]) if (el) el.classList.toggle('selpart', p === 'a' || p === 'win');
@@ -474,7 +476,17 @@
   }
   function nudge(dv) {
     let a = +tMinEl.value, b = +tMaxEl.value;
-    if (selPart === 'win') { const w = b - a; a = Math.max(0, Math.min(1000 - w, a + dv)); b = a + w; }
+    if (selPart === 'win') {
+      // sponge physics: arrowing into a wall compresses the window (leading edge pinned,
+      // trailing edge keeps coming); arrowing away re-expands it to its remembered width.
+      // The window tracks a VIRTUAL left edge that's allowed past the walls — clamping
+      // both edges to the track produces the squish and the spring-back for free.
+      const ca = Math.max(0, Math.min(1000, winVA)), cb = Math.max(0, Math.min(1000, winVA + winW));
+      if (winVA == null || ca !== a || cb !== b) { winVA = a; winW = b - a; }   // re-sync after mouse edits
+      winVA = Math.max(-winW, Math.min(1000, winVA + dv));
+      a = Math.max(0, Math.min(1000, winVA));
+      b = Math.max(0, Math.min(1000, winVA + winW));
+    }
     else if (selPart === 'a') a = Math.max(0, Math.min(b, a + dv));
     else if (selPart === 'b') b = Math.max(a, Math.min(1000, b + dv));
     tMinEl.value = a; tMaxEl.value = b; applyTime();
