@@ -557,6 +557,11 @@ const avState = new Map(); // sn -> {st:'loading'|'ok'|'err', img}
 function colorFor(sn){ // stable color for placeholder
   let h=0; for(const c of sn) h=(h*31+c.charCodeAt(0))%360; return `hsl(${h} 55% 55%)`;
 }
+// /pfp fallback queue: a cold archive can have hundreds of R2 misses at once, and firing
+// them all concurrently trips upstream rate limits (x.com scrape, unavatar) so most come
+// back 404. R2/CDN loads stay unthrottled; only the Worker fallback is queued.
+const FB_MAX=6; let fbActive=0; const fbQueue=[];
+function fbNext(){ while(fbActive<FB_MAX && fbQueue.length){ fbActive++; fbQueue.shift()(); } }
 function requestAvatar(sn){
   let s = avState.get(sn);
   if(s) return s;
@@ -565,10 +570,11 @@ function requestAvatar(sn){
   const img = new Image();
   if(CORSOK) img.crossOrigin='anonymous';     // keep canvas untainted -> screenshots work
   let triedFb=false;
-  img.onload = ()=>{ s.st='ok'; s.img=img; if(GL && glr) glr.addAvatar(sn, img); scheduleDraw(); };  // upload to atlas ONCE, here
+  const fbDone = ()=>{ if(triedFb){ fbActive--; fbNext(); } };
+  img.onload = ()=>{ fbDone(); s.st='ok'; s.img=img; if(GL && glr) glr.addAvatar(sn, img); scheduleDraw(); };  // upload to atlas ONCE, here
   img.onerror = ()=>{
-    if(!triedFb && AV2){ triedFb=true; img.src = AV2(sn); return; }   // R2 miss -> /pfp (resolves + populates R2 for next time)
-    s.st='err'; scheduleDraw();
+    if(!triedFb && AV2){ triedFb=true; fbQueue.push(()=>{ img.src = AV2(sn); }); fbNext(); return; }   // R2 miss -> /pfp (resolves + populates R2 for next time)
+    fbDone(); s.st='err'; scheduleDraw();
   };
   img.src = AV(sn);
   return s;

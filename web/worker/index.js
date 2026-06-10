@@ -47,6 +47,7 @@ async function pfp(url, ctx, env) {
   const cache = caches.default, ckey = new Request('https://moots.cache/pfp/' + h);
   let buf, ct;
   const hit = await cache.match(ckey);
+  if (hit && !hit.ok) return new Response('not found', { status: 404, headers: CORS });   // cached miss
   if (hit) {
     ct = hit.headers.get('content-type') || 'image/jpeg';
     buf = await hit.arrayBuffer();
@@ -55,7 +56,13 @@ async function pfp(url, ctx, env) {
     let img = imgUrl ? await fetch(imgUrl, { headers: { 'User-Agent': UA } }) : null;
     if (img && !img.ok && imgUrl.includes('_400x400.')) img = await fetch(imgUrl.replace('_400x400.', '_normal.'), { headers: { 'User-Agent': UA } });
     if (!img || !img.ok) img = await fetch('https://unavatar.io/twitter/' + h + '?fallback=false', { headers: { 'User-Agent': UA } });
-    if (!img || !img.ok) return new Response('not found', { status: 404, headers: CORS });
+    if (!img || !img.ok) {
+      // negative-cache DEFINITIVE misses (unavatar 404 = no such avatar) so dead handles
+      // 404 instantly instead of re-running the whole slow resolve chain on every page view.
+      // Transient failures (429 rate limit, 5xx) are NOT cached -> retried next load.
+      if (img && img.status === 404) ctx.waitUntil(cache.put(ckey, new Response('not found', { status: 404, headers: { ...CORS, 'Cache-Control': 'public, max-age=21600' } })));
+      return new Response('not found', { status: 404, headers: CORS });
+    }
     ct = img.headers.get('content-type') || 'image/jpeg';
     buf = await img.arrayBuffer();
     ctx.waitUntil(cache.put(ckey, new Response(buf, { headers: { ...CORS, 'Content-Type': ct, 'Cache-Control': `public, max-age=${IMG_TTL}, immutable` } })));
