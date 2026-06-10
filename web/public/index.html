@@ -478,6 +478,10 @@
     <label for="s-redist" style="margin:0;cursor:pointer" title="Re-rank positions by activity inside the selected time range (dots travel on each change) instead of keeping the all-time layout">Sync positions to range</label>
     <input type="checkbox" id="s-redist" style="accent-color:var(--accent);width:16px;height:16px">
   </div>
+  <div class="srow" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+    <label for="s-rings" style="margin:0;cursor:pointer" title="Coloured rings around each circle (recency / community); selection and hover highlights always show">Show outlines</label>
+    <input type="checkbox" id="s-rings" checked style="accent-color:var(--accent);width:16px;height:16px">
+  </div>
   <div id="gl-settings" style="display:none">
     <div class="srow">
       <label>Avatar resolution</label>
@@ -674,7 +678,7 @@ function targetRadius(total){
 const sizeScale = d3.scaleSqrt().domain([1,tmax]).range([7,30]);   // raised floor so small dots stay legible
 
 // live-adjustable layout settings (driven by the settings panel)
-let SIZE_MUL=3, SPREAD_MUL=1, LABEL_THRESH=22, SIZE_CONTRAST=1, AGE_WEIGHT=0;
+let SIZE_MUL=3, SPREAD_MUL=1, LABEL_THRESH=22, SIZE_CONTRAST=1, AGE_WEIGHT=0, SHOW_RINGS=true;
 let layoutMode='spread', colorMode='recency';   // 'spread'|'community'
 let lastCommCount=0;
 // recency 0..1 (0 = oldest last-interaction, 1 = most recent)
@@ -949,7 +953,9 @@ function glDrawGL(){
         if(!u && glUp<6 && s && s.st==='ok' && s.img){ glUp++; u = glr.addAvatar(n.sn, s.img); }
         if(u) tex=2;
       }
-      if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; av++; }
+      if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; av++;
+        if(!SHOW_RINGS && !isSel && !isHov) tex=-tex;   // negative = no ring (selection/hover keep theirs)
+      }
     }
     inst[p++]=n.x; inst[p++]=n.y; inst[p++]=n.size;
     inst[p++]=cr; inst[p++]=cg; inst[p++]=cb; inst[p++]=alpha;
@@ -1076,10 +1082,12 @@ function draw(){
     ctx.restore();
 
     // in community mode give every pfp a thick ring in its community colour
-    const commRing = (colorMode==='community' && !n.isHalo);
-    ctx.lineWidth = (isSel||isHov? 2.8 : commRing? 3.4 : 1.2)/k;
-    ctx.strokeStyle = isSel? '#ffd166' : isHov? '#fff' : col;
-    ctx.beginPath(); ctx.arc(n.x,n.y,n.size,0,7); ctx.stroke();
+    if(SHOW_RINGS || isSel || isHov){
+      const commRing = (colorMode==='community' && !n.isHalo);
+      ctx.lineWidth = (isSel||isHov? 2.8 : commRing? 3.4 : 1.2)/k;
+      ctx.strokeStyle = isSel? '#ffd166' : isHov? '#fff' : col;
+      ctx.beginPath(); ctx.arc(n.x,n.y,n.size,0,7); ctx.stroke();
+    }
 
     if(LABEL_THRESH<24 && (screenR>LABEL_THRESH || isSel || isHov || (hi && hi.has(n.sn)))){
       labelList.push({sx:n.x*k+transform.x, sy:n.y*k+transform.y, r:screenR, text:'@'+n.sn, sel:isSel, hov:isHov});
@@ -1125,8 +1133,10 @@ function drawMe(k){
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('you',0,1);
   }
-  ctx.lineWidth=3/k; ctx.strokeStyle='#ffd166';
-  ctx.beginPath(); ctx.arc(0,0,me.size,0,7); ctx.stroke();
+  if(SHOW_RINGS){
+    ctx.lineWidth=3/k; ctx.strokeStyle='#ffd166';
+    ctx.beginPath(); ctx.arc(0,0,me.size,0,7); ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -1337,6 +1347,7 @@ function setRedistribute(v){
   REDISTRIBUTE=!!v;
   applyLayoutSmooth();   // glide to the layout the new mode implies (no-op when no window is set)
 }
+function setOutlines(v){ SHOW_RINGS=!!v; scheduleDraw(); }
 // d3 forces cache their targets on initialize — re-add them so new tx/ty/size take effect
 function refreshForces(){
   sim.force('x', d3.forceX(d=>d.tx||0).strength(d=>d.me?0:0.30));
@@ -1674,7 +1685,7 @@ function applyDefaults(){
 }
 
 // expose hooks for the shell
-window.__moots = { selectPerson, setSettings, setLayoutMode, setGL, setTimeFilter, setRedistribute, timeBounds:{min:tFirstMin,max:tMax}, glOn:GL, exportPNG, applyDefaults, data:DATA, redraw:scheduleDraw,
+window.__moots = { selectPerson, setSettings, setLayoutMode, setGL, setTimeFilter, setRedistribute, setOutlines, timeBounds:{min:tFirstMin,max:tMax}, glOn:GL, exportPNG, applyDefaults, data:DATA, redraw:scheduleDraw,
   zoomTo:(k)=>d3.select(canvas).transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(k)) };
 
 // initial render

@@ -29,7 +29,7 @@
   layout(location=2) in float aSize;
   layout(location=3) in vec4 aColor;
   layout(location=4) in vec4 aUV;       // x0,y0,x1,y1 in atlas
-  layout(location=5) in float aTex;     // 0 = none · 1 = detail atlas · 2 = base atlas
+  layout(location=5) in float aTex;     // 0 = none · 1 = detail atlas · 2 = base atlas · negative = no ring
   uniform vec2 uRes; uniform vec3 uXform;
   out vec2 vQuad; out vec4 vColor; out vec2 vUV; out float vTex; out float vR;
   void main(){
@@ -56,11 +56,12 @@
     float aa = mix(0.0015, fwidth(d) + 0.0015, uAA);
     float circle = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
     if (circle < 0.003) discard;
-    float rw = max(uRing, 2.5 / max(vR, 1.0));      // ring thickness
+    float rw = vTex < -0.5 ? 0.0 : max(uRing, 2.5 / max(vR, 1.0));   // ring thickness (negative aTex = outlines off)
     float edge = 1.0 - rw;
     vec3 rgb = vColor.rgb;
-    if (vTex > 0.5) {
-      vec3 face = vTex > 1.5 ? texture(uAtlasB, vUV).rgb : texture(uAtlas, vUV).rgb;
+    float tt = abs(vTex);
+    if (tt > 0.5) {
+      vec3 face = tt > 1.5 ? texture(uAtlasB, vUV).rgb : texture(uAtlas, vUV).rgb;
       float inRing = smoothstep(edge - aa, edge + aa, d);   // 0 inside face, 1 in ring band
       rgb = mix(face, vColor.rgb, inRing);
     }

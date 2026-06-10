@@ -294,6 +294,8 @@
   // off (default) = keep the all-time layout, only sizes/visibility track the range;
   // on = re-rank positions by activity inside the range
   $('s-redist').onchange = () => { if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute($('s-redist').checked); };
+  // coloured rings around the circles (recency / community); selection highlights always show
+  $('s-rings').onchange = () => { if (window.__moots && window.__moots.setOutlines) window.__moots.setOutlines($('s-rings').checked); };
 
   // layout toggle: even spread vs community pie-slices
   const seg = $('seg-layout');
@@ -312,6 +314,7 @@
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.mode === 'spread'));
     tMinEl.value = 0; tMaxEl.value = 1000; applyTime();   // clear the time scrubber
     const rd = $('s-redist'); if (rd && rd.checked) { rd.checked = false; if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute(false); }
+    const rg = $('s-rings'); if (rg && !rg.checked) { rg.checked = true; if (window.__moots && window.__moots.setOutlines) window.__moots.setOutlines(true); }
     if (window.__moots) {
       window.__moots.setLayoutMode('spread');
       if (window.__moots.applyDefaults) window.__moots.applyDefaults();   // archive-size-aware defaults + label refresh
