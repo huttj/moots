@@ -290,13 +290,14 @@
       const val = ev => Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * 1000);
       const xOf = v => r.left + (v / 1000) * r.width;
       const v0 = val(e), a0 = +tMinEl.value, b0 = +tMaxEl.value;
-      const GRAB = 12;   // px: how close to a thumb counts as grabbing it
+      const GRAB = 8;    // px: how close to a thumb counts as grabbing it (~the thumb itself)
       const nearA = Math.abs(e.clientX - xOf(a0)) <= GRAB, nearB = Math.abs(e.clientX - xOf(b0)) <= GRAB;
+      const inside = v0 > a0 && v0 < b0;
       let mode;          // 'a' | 'b' | 'pan'
-      if (nearA && nearB) mode = v0 < a0 ? 'a' : v0 > b0 ? 'b' : (v0 - a0 <= b0 - v0 ? 'a' : 'b');
+      if (nearA && nearB) mode = inside ? 'pan' : v0 <= a0 ? 'a' : 'b';   // narrow window: inside pans; stacked pair: side decides
       else if (nearA) mode = 'a';
       else if (nearB) mode = 'b';
-      else if (v0 > a0 && v0 < b0) mode = 'pan';
+      else if (inside) mode = 'pan';
       else mode = v0 < a0 ? 'a' : 'b';
       const move = ev => {
         const nv = val(ev);
