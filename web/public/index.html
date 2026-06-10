@@ -597,7 +597,7 @@ function requestAvatar(sn){
 const rowsEl = document.getElementById('rows');
 const maxTotal = people[0].total;
 document.getElementById('histmuted').textContent =
-  `${DATA.totalPeople.toLocaleString()} people, ranked by mentions + replies. #1 is @${people[0].sn} with ${maxTotal.toLocaleString()}.`;
+  `${DATA.totalPeople.toLocaleString()} people, ranked by mentions + replies.`;
 
 function renderHist(){
   const n = +document.getElementById('histN').value;
@@ -619,7 +619,7 @@ function renderHist(){
   const mx = list.length ? list[0].t : 1;
   document.getElementById('histmuted').textContent = winOn
     ? `${list.length.toLocaleString()} people active ${fmtMonth(new Date(FILT_A))} – ${fmtMonth(new Date(FILT_B))}, ranked by mentions + replies in that range.`
-    : `${DATA.totalPeople.toLocaleString()} people, ranked by mentions + replies. #1 is @${people[0].sn} with ${maxTotal.toLocaleString()}.`;
+    : `${DATA.totalPeople.toLocaleString()} people, ranked by mentions + replies.`;
   const scale = mode==='log' ? d3.scaleLog().domain([1,mx]).range([0,100])
             : mode==='sqrt'  ? d3.scaleSqrt().domain([0,mx]).range([0,100])
             :                  d3.scaleLinear().domain([0,mx]).range([0,100]);
@@ -1340,7 +1340,11 @@ function switchTab(which){
   document.getElementById('histogram').classList.toggle('active',!isC);
   document.getElementById('tab-const').classList.toggle('active',isC);
   document.getElementById('tab-hist').classList.toggle('active',!isC);
-  if(isC){ resize(); scheduleDraw(); } else { renderHist(); }
+  if(isC){ resize(); scheduleDraw(); }
+  else {
+    const st=document.getElementById('settings'); if(st) st.classList.remove('show');   // settings are constellation-only
+    renderHist();
+  }
 }
 document.getElementById('tab-const').onclick=()=>switchTab('const');
 document.getElementById('tab-hist').onclick =()=>switchTab('hist');
@@ -1432,7 +1436,7 @@ function setGL(o){
 }
 // time-range scrubber: show anyone whose active span [first,last] OVERLAPS the window [a,b].
 // (overlap, not just last-interaction, so a long-active mood isn't dropped by pulling either end in.)
-let FILT_A=tFirstMin, FILT_B=tMax, _filtKick=null;
+let FILT_A=tFirstMin, FILT_B=tMax, _filtKick=null, _histLast=0;
 function setTimeFilter(a,b){
   FILT_A=a; FILT_B=b;
   const full = a<=tFirstMin && b>=tMax;
@@ -1468,6 +1472,11 @@ function setTimeFilter(a,b){
       n.tHidden = !(fOk && lOk);
     }
     n.size = currentSize(n);
+  }
+  // live histogram while scrubbing, throttled; the settle kick below does the final render
+  if(HAS_TL && document.getElementById('histogram').classList.contains('active')){
+    const now=performance.now();
+    if(now-_histLast>150){ _histLast=now; renderHist(); }
   }
   // once the scrub pauses (not per input event): in redistribute mode glide everyone to their
   // re-ranked spots; otherwise positions must NOT travel — only let collide absorb the new
