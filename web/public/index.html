@@ -914,7 +914,7 @@ function glDrawGL(){
   // are invisible anyway and requesting their avatars would thrash the atlas).
   const x0=(-transform.x)/k, y0=(-transform.y)/k, x1=(W-transform.x)/k, y1=(H-transform.y)/k, pad=80/k;
   if(!glInst || glInst.length<nodes.length*glr.FLOATS) glInst=new Float32Array(nodes.length*glr.FLOATS);
-  const inst=glInst; let p=0, vis=0, av=0;
+  const inst=glInst; let p=0, vis=0, av=0, glUp=0;
   for(const n of nodes){
     if(n.me) continue;
     if(n.x<x0-pad||n.x>x1+pad||n.y<y0-pad||n.y>y1+pad) continue;   // cull off-screen
@@ -933,7 +933,11 @@ function glDrawGL(){
     // tiny faces overflows the avatar atlas and forces it to re-upload every frame.
     if(n.size*k>=GL_AVATAR_R && !halo){              // dimmed nodes still show their face, just muted (alpha above)
       if(!exporting && !avState.has(n.sn)) requestAvatar(n.sn);   // kick off the fetch (idempotent, cheap); upload happens in onload
-      const u = glr.uvOf(n.sn);                      // pure lookup — null until the face has loaded+uploaded
+      let u = glr.uvOf(n.sn);                        // null until the face has loaded+uploaded (or after LRU eviction)
+      if(!u && glUp<6){                              // loaded but slotless (evicted / atlas was full): re-upload,
+        const s=avState.get(n.sn);                   // budgeted per frame so texSubImage2D can never storm the GPU
+        if(s && s.st==='ok' && s.img){ glUp++; u = glr.addAvatar(n.sn, s.img); }
+      }
       if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; tex=1; av++; }
     }
     inst[p++]=n.x; inst[p++]=n.y; inst[p++]=n.size;

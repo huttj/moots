@@ -115,8 +115,9 @@
     /* ---------- avatar atlas (resolution configurable at runtime) ---------- */
     let ATLAS = 4096, CELL = 64, COLS = ATLAS / CELL, NCELLS = COLS * COLS;
     let atlas = null;
-    const cellOf = new Map();          // sn -> uv (set once, never mutated in the hot path)
+    const cellOf = new Map();          // sn -> {uv, cell}
     let nextCell = 0;
+    let cellSn = [], cellUsed = null, frame = 0;   // per-cell owner + last-drawn stamp (LRU eviction)
     const scratch = document.createElement('canvas');
     const sctx = scratch.getContext('2d');
     function makeAtlas(cellPx) {
@@ -134,15 +135,26 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       cellOf.clear(); nextCell = 0;
+      cellSn = new Array(NCELLS); cellUsed = new Float64Array(NCELLS); frame = 0;
     }
     makeAtlas(64);
     // Upload a face to the atlas EXACTLY ONCE — call from the image's onload, never
     // from the render loop. The lone texSubImage2D here is the cost; per-frame it 4fps'd.
     function addAvatar(sn, img) {
       const e = cellOf.get(sn);
-      if (e) return e;
-      if (nextCell >= NCELLS) return null;         // atlas full -> face stays a dot (no thrash)
-      const cell = nextCell++;
+      if (e) return e.uv;
+      let cell;
+      if (nextCell < NCELLS) cell = nextCell++;
+      else {
+        // atlas full: evict the least-recently-drawn face — but only one that hasn't been
+        // needed for a while; slots in active use stay put (no thrash). Big archives
+        // (>NCELLS people) get whichever faces are actually on screen.
+        let best = -1, bestUsed = frame - 30;
+        for (let c = 0; c < NCELLS; c++) if (cellUsed[c] < bestUsed) { bestUsed = cellUsed[c]; best = c; }
+        if (best < 0) return null;
+        cellOf.delete(cellSn[best]);
+        cell = best;
+      }
       const cx = (cell % COLS) * CELL, cy = ((cell / COLS) | 0) * CELL;
       sctx.clearRect(0, 0, CELL, CELL);
       try { sctx.drawImage(img, 0, 0, CELL, CELL); } catch (_) { return null; }
@@ -150,10 +162,11 @@
       try { gl.texSubImage2D(gl.TEXTURE_2D, 0, cx, cy, gl.RGBA, gl.UNSIGNED_BYTE, scratch); }
       catch (_) { return null; }
       const uv = [cx / ATLAS, cy / ATLAS, (cx + CELL) / ATLAS, (cy + CELL) / ATLAS];
-      cellOf.set(sn, uv);
+      cellOf.set(sn, { uv, cell }); cellSn[cell] = sn; cellUsed[cell] = frame;
       return uv;
     }
-    const uvOf = (sn) => cellOf.get(sn) || null;   // pure lookup for the render loop
+    // render-loop lookup; stamps the cell as in-use so the LRU never evicts a visible face
+    const uvOf = (sn) => { const e = cellOf.get(sn); if (!e) return null; cellUsed[e.cell] = frame; return e.uv; };
     const hasAvatar = (sn) => cellOf.has(sn);
     // change resolution: rebuild the atlas; caller re-uploads loaded faces afterwards
     function setCellSize(px) { if (px !== CELL) makeAtlas(px); }
@@ -196,7 +209,7 @@
       get bufferWidth() { return gl.drawingBufferWidth; },     // actual backing store (browser may cap below request)
       get bufferHeight() { return gl.drawingBufferHeight; },
       resize(w, h, ratio) { dpr = ratio; cw = Math.round(w * dpr); ch = Math.round(h * dpr); canvas.width = cw; canvas.height = ch; },
-      begin() { gl.viewport(0, 0, cw, ch); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); },
+      begin() { frame++; gl.viewport(0, 0, cw, ch); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); },
       links(verts, nLines, t, color) {
         if (!nLines) return;
         gl.useProgram(linkProg); gl.bindVertexArray(linkVAO);
