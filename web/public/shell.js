@@ -180,24 +180,33 @@
     let count = dv.getUint16(eocd + 10, true);
     let cdSize = dv.getUint32(eocd + 12, true);
     let cdOff = dv.getUint32(eocd + 16, true);
+    // zip64 records (locator + EOCD64) sit between the central directory and the classic
+    // EOCD when present — Twitter writes them even when the classic fields are NOT
+    // placeholders, so check for the locator unconditionally.
     let cdEndAbs = eocdAbs;
+    const loc = eocd - 20;
+    const hasLoc = loc >= 0 && dv.getUint32(loc, true) === 0x07064b50;
+    if (hasLoc) cdEndAbs = Number(dv.getBigUint64(loc + 8, true));
     if (count === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) {
-      // ZIP64: real values live in the zip64 EOCD; its locator sits just before the EOCD
-      const loc = eocd - 20;
-      if (loc < 0 || dv.getUint32(loc, true) !== 0x07064b50) throw new Error('zip64 archive missing its locator record');
-      const z64Abs = Number(dv.getBigUint64(loc + 8, true));
-      const z = new DataView((await u8(z64Abs, 56)).buffer);
+      // ZIP64 placeholders: the real values live in the zip64 EOCD
+      if (!hasLoc) throw new Error('zip64 archive missing its locator record');
+      const z = new DataView((await u8(cdEndAbs, 56)).buffer);
       if (z.getUint32(0, true) !== 0x06064b50) throw new Error('bad zip64 end-of-central-directory record');
       count = Number(z.getBigUint64(32, true));
       cdSize = Number(z.getBigUint64(40, true));
       cdOff = Number(z.getBigUint64(48, true));
-      cdEndAbs = z64Abs;
     }
-    // archives just over 4GB written WITHOUT zip64 store offsets mod 2^32 (this is the
-    // "expected N records in central dir, got 0" family of failures). The central
-    // directory always ends exactly where the (zip64) EOCD begins, so derive its true
-    // start structurally and trust that over the stored offset.
-    const cdStart = cdEndAbs - cdSize >= 0 ? cdEndAbs - cdSize : cdOff;
+    // find the central directory: the stored offset is usually right, but archives just
+    // over 4GB written without zip64 store it mod 2^32 (jszip's "expected N records in
+    // central dir, got 0"). The directory always ends where the (zip64) EOCD begins, so
+    // that's the recovery candidate. Validate either by signature.
+    let cdStart = -1;
+    for (const cand of [cdOff, cdEndAbs - cdSize]) {
+      if (cand < 0 || cand + cdSize > file.size) continue;
+      const s = await u8(cand, 4);
+      if (s[0] === 0x50 && s[1] === 0x4b && s[2] === 0x01 && s[3] === 0x02) { cdStart = cand; break; }
+    }
+    if (cdStart < 0) throw new Error('central directory not found — corrupted download?');
     // walk the central directory, picking the entries we want
     const cd = await u8(cdStart, cdSize), cdv = new DataView(cd.buffer), td = new TextDecoder();
     const found = [];

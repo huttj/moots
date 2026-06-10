@@ -27,3 +27,5 @@ dist/
 
 # raw banner intermediate (banners.js is the one the app uses)
 /banners.tsv
+*.zip
+twitter-*.zip
