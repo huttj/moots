@@ -118,11 +118,21 @@
     const cellOf = new Map();          // sn -> {uv, cell}
     let nextCell = 0;
     let cellSn = [], cellUsed = null, frame = 0;   // per-cell owner + last-drawn stamp (LRU eviction)
+    let WANT = 4096;                   // face capacity to aim for (set from archive size)
+    // smallest atlas edge whose cell grid covers WANT faces. 8192 RGBA = 268MB of GPU
+    // memory, so it's only allocated when the archive actually needs it; software
+    // renderers stay at 4096. At 64px cells an 8192 atlas = 16,384 resident faces.
+    function atlasEdge(cellPx) {
+      const cap = Math.min(MAXTEX, SOFTWARE ? 4096 : 8192);
+      let a = 2048;
+      while (a < cap && (a / cellPx) * (a / cellPx) < WANT) a *= 2;
+      return a;
+    }
     const scratch = document.createElement('canvas');
     const sctx = scratch.getContext('2d');
     function makeAtlas(cellPx) {
       CELL = cellPx;
-      ATLAS = Math.min(MAXTEX, cellPx <= 64 ? 4096 : 8192);
+      ATLAS = atlasEdge(cellPx);
       COLS = (ATLAS / CELL) | 0; NCELLS = COLS * COLS;
       scratch.width = scratch.height = CELL;
       if (atlas) gl.deleteTexture(atlas);
@@ -168,8 +178,12 @@
     // render-loop lookup; stamps the cell as in-use so the LRU never evicts a visible face
     const uvOf = (sn) => { const e = cellOf.get(sn); if (!e) return null; cellUsed[e.cell] = frame; return e.uv; };
     const hasAvatar = (sn) => cellOf.has(sn);
-    // change resolution: rebuild the atlas; caller re-uploads loaded faces afterwards
-    function setCellSize(px) { if (px !== CELL) makeAtlas(px); }
+    // change resolution and/or capacity: rebuild the atlas; caller re-uploads loaded faces.
+    // want = how many faces the archive could ask for (sizes the atlas, within GPU limits).
+    function setCellSize(px, want) {
+      if (want) WANT = want;
+      if (px !== CELL || atlasEdge(px) !== ATLAS) makeAtlas(px);
+    }
 
     /* ---------- GL objects ---------- */
     const quad = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);

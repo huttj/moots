@@ -643,9 +643,10 @@ let glr = GLMODE && window.GLRenderer ? window.GLRenderer(document.getElementByI
 const GL = !!glr;
 if(GL){
   const gs=document.getElementById('gl-settings'); if(gs) gs.style.display='';   // reveal avatar-res + AA + fps controls
-  // default avatar resolution to High where the GPU can take it, Standard otherwise
+  // default avatar resolution to High where the GPU can take it, Standard otherwise;
+  // pass the archive size so the atlas is sized to hold every face (within GPU limits)
   const recCell = glr.recommendedCell ? glr.recommendedCell() : 64;
-  if(recCell!==glr.cell) glr.setCellSize(recCell);
+  glr.setCellSize(recCell, people.length+8);
   const sr=document.getElementById('seg-res');
   if(sr) sr.querySelectorAll('button').forEach(x=>x.classList.toggle('on', +x.dataset.res===recCell));   // reflect default in the toggle
   if(_glParams.get('perf')==='1' || _glParams.get('gl')==='1'){   // fps overlay: opt-in for debugging
