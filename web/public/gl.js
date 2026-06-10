@@ -29,7 +29,7 @@
   layout(location=2) in float aSize;
   layout(location=3) in vec4 aColor;
   layout(location=4) in vec4 aUV;       // x0,y0,x1,y1 in atlas
-  layout(location=5) in float aTex;     // 1 = has avatar
+  layout(location=5) in float aTex;     // 0 = none · 1 = detail atlas · 2 = base atlas
   uniform vec2 uRes; uniform vec3 uXform;
   out vec2 vQuad; out vec4 vColor; out vec2 vUV; out float vTex; out float vR;
   void main(){
@@ -45,7 +45,9 @@
   const NODE_FS = `#version 300 es
   precision mediump float;
   in vec2 vQuad; in vec4 vColor; in vec2 vUV; in float vTex; in float vR;
-  uniform sampler2D uAtlas; uniform float uRing;   // ring fraction (0..)
+  uniform sampler2D uAtlas;                         // detail tier (large on-screen faces)
+  uniform sampler2D uAtlasB;                        // base tier (every face, smaller cells)
+  uniform float uRing;                              // ring fraction (0..)
   uniform float uAA;                                // 1 = smooth edges, 0 = hard
   out vec4 o;
   void main(){
@@ -58,7 +60,7 @@
     float edge = 1.0 - rw;
     vec3 rgb = vColor.rgb;
     if (vTex > 0.5) {
-      vec3 face = texture(uAtlas, vUV).rgb;
+      vec3 face = vTex > 1.5 ? texture(uAtlasB, vUV).rgb : texture(uAtlas, vUV).rgb;
       float inRing = smoothstep(edge - aa, edge + aa, d);   // 0 inside face, 1 in ring band
       rgb = mix(face, vColor.rgb, inRing);
     }
@@ -103,8 +105,8 @@
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     const RENDERER = (dbg ? (gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '') : '').toString();
     const SOFTWARE = /swiftshader|software|llvmpipe|basic render|microsoft basic|warp/i.test(RENDERER);
-    // 128px atlas wants an 8192 texture (256MB). Only recommend it on a real GPU with the
-    // headroom; otherwise the High atlas overflows / thrashes -> stay at 64px Standard.
+    // High = an extra 128px detail tier (64MB) on top of the base atlas. Only recommend
+    // it on a real GPU with headroom; weak/software GPUs stay at 64px base-only.
     function recommendedCell() {
       if (SOFTWARE) return 64;
       if (MAXTEX < 8192) return 64;
@@ -112,77 +114,93 @@
       return 128;
     }
 
-    /* ---------- avatar atlas (resolution configurable at runtime) ---------- */
-    let ATLAS = 4096, CELL = 64, COLS = ATLAS / CELL, NCELLS = COLS * COLS;
-    let atlas = null;
-    const cellOf = new Map();          // sn -> {uv, cell}
-    let nextCell = 0;
-    let cellSn = [], cellUsed = null, frame = 0;   // per-cell owner + last-drawn stamp (LRU eviction)
-    let WANT = 4096;                   // face capacity to aim for (set from archive size)
-    // smallest atlas edge whose cell grid covers WANT faces. 8192 RGBA = 268MB of GPU
-    // memory, so it's only allocated when the archive actually needs it; software
-    // renderers stay at 4096. At 64px cells an 8192 atlas = 16,384 resident faces.
-    function atlasEdge(cellPx) {
-      const cap = Math.min(MAXTEX, SOFTWARE ? 4096 : 8192);
-      let a = 2048;
-      while (a < cap && (a / cellPx) * (a / cellPx) < WANT) a *= 2;
-      return a;
-    }
+    /* ---------- avatar atlases: two tiers ----------
+       BASE holds EVERY face (uploaded once in onload, never evicted), sized to the
+       archive: 64px cells, growing the texture edge as needed — 8192 (16,384 faces,
+       268MB) on real GPUs, 16384 (65,536 faces, 1GB) where the GPU has the memory,
+       and falling back to 32px cells (density over sharpness) beyond even that.
+       DETAIL holds only the faces currently drawn LARGE on screen (you can't fit more
+       than ~1k readable big circles anyway): 64/128px cells in a fixed 4096 texture
+       (64MB), LRU-evicted as the view moves. The draw loop picks per node by size. */
+    let frame = 0;
     const scratch = document.createElement('canvas');
     const sctx = scratch.getContext('2d');
-    function makeAtlas(cellPx) {
-      CELL = cellPx;
-      ATLAS = atlasEdge(cellPx);
-      COLS = (ATLAS / CELL) | 0; NCELLS = COLS * COLS;
-      scratch.width = scratch.height = CELL;
-      if (atlas) gl.deleteTexture(atlas);
-      atlas = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, atlas);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ATLAS, ATLAS, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    function makeTier(cellPx, want, capEdge, evict) {
+      let edge = 2048;
+      while (edge < capEdge && (edge / cellPx) * (edge / cellPx) < want) edge *= 2;
+      const COLS = (edge / cellPx) | 0, NCELLS = COLS * COLS;
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, edge, edge, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-      cellOf.clear(); nextCell = 0;
-      cellSn = new Array(NCELLS); cellUsed = new Float64Array(NCELLS); frame = 0;
+      const cellOf = new Map();                       // sn -> {uv, cell}
+      const cellSn = new Array(NCELLS), cellUsed = new Float64Array(NCELLS);
+      let nextCell = 0;
+      return {
+        tex, cell: cellPx, NCELLS,
+        add(sn, img) {
+          const e = cellOf.get(sn);
+          if (e) return e.uv;
+          let cell;
+          if (nextCell < NCELLS) cell = nextCell++;
+          else if (evict) {
+            // full: evict the least-recently-drawn face — but only one idle for a
+            // while; slots in active use stay put (no thrash)
+            let best = -1, bestUsed = frame - 30;
+            for (let c = 0; c < NCELLS; c++) if (cellUsed[c] < bestUsed) { bestUsed = cellUsed[c]; best = c; }
+            if (best < 0) return null;
+            cellOf.delete(cellSn[best]);
+            cell = best;
+          } else return null;
+          const cx = (cell % COLS) * cellPx, cy = ((cell / COLS) | 0) * cellPx;
+          if (scratch.width !== cellPx) scratch.width = scratch.height = cellPx;
+          sctx.clearRect(0, 0, cellPx, cellPx);
+          try { sctx.drawImage(img, 0, 0, cellPx, cellPx); } catch (_) { return null; }
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          try { gl.texSubImage2D(gl.TEXTURE_2D, 0, cx, cy, gl.RGBA, gl.UNSIGNED_BYTE, scratch); }
+          catch (_) { return null; }
+          const uv = [cx / edge, cy / edge, (cx + cellPx) / edge, (cy + cellPx) / edge];
+          cellOf.set(sn, { uv, cell }); cellSn[cell] = sn; cellUsed[cell] = frame;
+          return uv;
+        },
+        // render-loop lookup; stamps the cell as in-use so the LRU never evicts a visible face
+        uv(sn) { const e = cellOf.get(sn); if (!e) return null; cellUsed[e.cell] = frame; return e.uv; },
+        has: (sn) => cellOf.has(sn),
+        destroy() { gl.deleteTexture(tex); },
+      };
     }
-    makeAtlas(64);
-    // Upload a face to the atlas EXACTLY ONCE — call from the image's onload, never
-    // from the render loop. The lone texSubImage2D here is the cost; per-frame it 4fps'd.
-    function addAvatar(sn, img) {
-      const e = cellOf.get(sn);
-      if (e) return e.uv;
-      let cell;
-      if (nextCell < NCELLS) cell = nextCell++;
-      else {
-        // atlas full: evict the least-recently-drawn face — but only one that hasn't been
-        // needed for a while; slots in active use stay put (no thrash). Big archives
-        // (>NCELLS people) get whichever faces are actually on screen.
-        let best = -1, bestUsed = frame - 30;
-        for (let c = 0; c < NCELLS; c++) if (cellUsed[c] < bestUsed) { bestUsed = cellUsed[c]; best = c; }
-        if (best < 0) return null;
-        cellOf.delete(cellSn[best]);
-        cell = best;
+    let WANT = 4096;                                  // archive size (faces the base tier must hold)
+    function makeBase() {
+      let cellPx = 64, capEdge = Math.min(MAXTEX, SOFTWARE ? 4096 : 8192);
+      if (WANT > (capEdge / cellPx) ** 2) {
+        // monster archive: allow a 16384 (1GB) texture where the GPU plausibly has the
+        // memory; if even that can't fit everyone at 64px, drop to 32px cells
+        if (!SOFTWARE && MAXTEX >= 16384 && (navigator.deviceMemory || 8) >= 8) capEdge = 16384;
+        if (WANT > (capEdge / cellPx) ** 2) cellPx = 32;
       }
-      const cx = (cell % COLS) * CELL, cy = ((cell / COLS) | 0) * CELL;
-      sctx.clearRect(0, 0, CELL, CELL);
-      try { sctx.drawImage(img, 0, 0, CELL, CELL); } catch (_) { return null; }
-      gl.bindTexture(gl.TEXTURE_2D, atlas);
-      try { gl.texSubImage2D(gl.TEXTURE_2D, 0, cx, cy, gl.RGBA, gl.UNSIGNED_BYTE, scratch); }
-      catch (_) { return null; }
-      const uv = [cx / ATLAS, cy / ATLAS, (cx + CELL) / ATLAS, (cy + CELL) / ATLAS];
-      cellOf.set(sn, { uv, cell }); cellSn[cell] = sn; cellUsed[cell] = frame;
-      return uv;
+      return makeTier(cellPx, WANT, capEdge, false);
     }
-    // render-loop lookup; stamps the cell as in-use so the LRU never evicts a visible face
-    const uvOf = (sn) => { const e = cellOf.get(sn); if (!e) return null; cellUsed[e.cell] = frame; return e.uv; };
-    const hasAvatar = (sn) => cellOf.has(sn);
-    // change resolution and/or capacity: rebuild the atlas; caller re-uploads loaded faces.
-    // want = how many faces the archive could ask for (sizes the atlas, within GPU limits).
+    let base = makeBase();
+    let detail = null;                                // created when cell size > base cell (High res)
+    function addAvatar(sn, img) { return base.add(sn, img); }           // onload -> base, exactly once
+    const uvOf = (sn) => base.uv(sn);
+    const hasAvatar = (sn) => base.has(sn);
+    const addDetail = (sn, img) => detail ? detail.add(sn, img) : null; // draw loop, budgeted
+    const uvDetail = (sn) => detail ? detail.uv(sn) : null;
+    // change resolution and/or capacity. want = archive size; resizes the base tier.
+    // px only governs the DETAIL tier: at 64 (Standard) base alone serves everything,
+    // at 128 (High) big on-screen circles get a 128px LRU tier on top.
     function setCellSize(px, want) {
-      if (want) WANT = want;
-      if (px !== CELL || atlasEdge(px) !== ATLAS) makeAtlas(px);
+      if (want && want !== WANT) { WANT = want; base.destroy(); base = makeBase(); }
+      const dPx = px > base.cell ? px : 0;
+      if ((detail ? detail.cell : 0) !== dPx) {
+        if (detail) detail.destroy();
+        detail = dPx ? makeTier(dPx, 1e9, Math.min(MAXTEX, 4096), true) : null;
+      }
     }
 
     /* ---------- GL objects ---------- */
@@ -200,8 +218,8 @@
     gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 1, gl.FLOAT, false, STRIDE, 44); gl.vertexAttribDivisor(5, 1);
     gl.bindVertexArray(null);
     const nU = { res: gl.getUniformLocation(nodeProg, 'uRes'), xf: gl.getUniformLocation(nodeProg, 'uXform'),
-                 atlas: gl.getUniformLocation(nodeProg, 'uAtlas'), ring: gl.getUniformLocation(nodeProg, 'uRing'),
-                 aa: gl.getUniformLocation(nodeProg, 'uAA') };
+                 atlas: gl.getUniformLocation(nodeProg, 'uAtlas'), atlasB: gl.getUniformLocation(nodeProg, 'uAtlasB'),
+                 ring: gl.getUniformLocation(nodeProg, 'uRing'), aa: gl.getUniformLocation(nodeProg, 'uAA') };
 
     const linkVAO = gl.createVertexArray(); gl.bindVertexArray(linkVAO);
     const linkBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, linkBuf);
@@ -218,8 +236,9 @@
 
     let cw = 0, ch = 0, dpr = 1;
     return {
-      FLOATS, addAvatar, uvOf, hasAvatar, setCellSize, recommendedCell, maxDim: MAXDIM, renderer: RENDERER,
-      get cell() { return CELL; },
+      FLOATS, addAvatar, uvOf, hasAvatar, addDetail, uvDetail, setCellSize, recommendedCell, maxDim: MAXDIM, renderer: RENDERER,
+      get cell() { return detail ? detail.cell : base.cell; },   // the user-facing "avatar resolution"
+      get baseCell() { return base.cell; },
       get bufferWidth() { return gl.drawingBufferWidth; },     // actual backing store (browser may cap below request)
       get bufferHeight() { return gl.drawingBufferHeight; },
       resize(w, h, ratio) { dpr = ratio; cw = Math.round(w * dpr); ch = Math.round(h * dpr); canvas.width = cw; canvas.height = ch; },
@@ -245,7 +264,9 @@
         if (!n) return;
         gl.useProgram(nodeProg); gl.bindVertexArray(nodeVAO);
         gl.bindBuffer(gl.ARRAY_BUFFER, instBuf); gl.bufferData(gl.ARRAY_BUFFER, inst, gl.DYNAMIC_DRAW);
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, atlas); gl.uniform1i(nU.atlas, 0);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, (detail || base).tex); gl.uniform1i(nU.atlas, 0);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, base.tex); gl.uniform1i(nU.atlasB, 1);
+        gl.activeTexture(gl.TEXTURE0);
         gl.uniform1f(nU.ring, ring || 0.0); gl.uniform1f(nU.aa, aa == null ? 1.0 : aa);
         gl.uniform2f(nU.res, cw, ch); gl.uniform3f(nU.xf, t.k * dpr, t.x * dpr, t.y * dpr);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);

@@ -916,6 +916,7 @@ function glDrawGL(){
   const x0=(-transform.x)/k, y0=(-transform.y)/k, x1=(W-transform.x)/k, y1=(H-transform.y)/k, pad=80/k;
   if(!glInst || glInst.length<nodes.length*glr.FLOATS) glInst=new Float32Array(nodes.length*glr.FLOATS);
   const inst=glInst; let p=0, vis=0, av=0, glUp=0;
+  const hiR = glr.baseCell/(2*DPR);   // CSS radius where the base cell maps <1 texel/device px
   for(const n of nodes){
     if(n.me) continue;
     if(n.x<x0-pad||n.x>x1+pad||n.y<y0-pad||n.y>y1+pad) continue;   // cull off-screen
@@ -934,12 +935,21 @@ function glDrawGL(){
     // tiny faces overflows the avatar atlas and forces it to re-upload every frame.
     if(n.size*k>=GL_AVATAR_R && !halo){              // dimmed nodes still show their face, just muted (alpha above)
       if(!exporting && !avState.has(n.sn)) requestAvatar(n.sn);   // kick off the fetch (idempotent, cheap); upload happens in onload
-      let u = glr.uvOf(n.sn);                        // null until the face has loaded+uploaded (or after LRU eviction)
-      if(!u && glUp<6){                              // loaded but slotless (evicted / atlas was full): re-upload,
-        const s=avState.get(n.sn);                   // budgeted per frame so texSubImage2D can never storm the GPU
-        if(s && s.st==='ok' && s.img){ glUp++; u = glr.addAvatar(n.sn, s.img); }
+      const s = avState.get(n.sn);
+      let u = null;
+      // big on screen -> detail tier (128px, LRU); uploads are budgeted per frame so
+      // texSubImage2D can never storm the GPU. hiR: where the base cell starts to blur.
+      if(n.size*k >= hiR){
+        u = glr.uvDetail(n.sn);
+        if(!u && glUp<6 && s && s.st==='ok' && s.img){ glUp++; u = glr.addDetail(n.sn, s.img); }
+        if(u) tex=1;
       }
-      if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; tex=1; av++; }
+      if(!u){                                        // base tier: every face lives here
+        u = glr.uvOf(n.sn);
+        if(!u && glUp<6 && s && s.st==='ok' && s.img){ glUp++; u = glr.addAvatar(n.sn, s.img); }
+        if(u) tex=2;
+      }
+      if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; av++; }
     }
     inst[p++]=n.x; inst[p++]=n.y; inst[p++]=n.size;
     inst[p++]=cr; inst[p++]=cg; inst[p++]=cb; inst[p++]=alpha;
@@ -1379,8 +1389,7 @@ function setGL(o){
   if(o.aa!=null) GL_AA = o.aa ? 1 : 0;
   if(o.fps!=null){ const gp=document.getElementById('glperf'); if(gp){ gp.style.display=o.fps?'block':'none'; if(o.fps&&!gp.textContent) gp.textContent='warming up…'; } }
   if(o.avatarRes!=null && o.avatarRes!==glr.cell){
-    glr.setCellSize(o.avatarRes);                       // rebuilds the atlas...
-    for(const [sn,s] of avState) if(s.st==='ok' && s.img) glr.addAvatar(sn, s.img);   // ...re-upload loaded faces
+    glr.setCellSize(o.avatarRes);   // swaps the detail tier; base (every face) persists, detail refills on demand
   }
   scheduleDraw();
 }
