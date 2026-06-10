@@ -330,6 +330,18 @@
   /* ---------------- settings ---------------- */
   const settings = $('settings');
   $('btn-settings').onclick = () => settings.classList.toggle('show');
+
+  // mobile: search lives behind a button and expands as a row under the header
+  const searchWrap = document.querySelector('header .search');
+  $('btn-search').onclick = (e) => {
+    e.stopPropagation();
+    searchWrap.classList.toggle('open');
+    if (searchWrap.classList.contains('open')) $('search').focus();
+  };
+  document.addEventListener('click', e => {
+    if (searchWrap.classList.contains('open') && !e.target.closest('.search') && !e.target.closest('#btn-search'))
+      searchWrap.classList.remove('open');
+  });
   const sSize = $('s-size'), sSpread = $('s-spread'), sLabel = $('s-label'), sContrast = $('s-contrast'), sPack = $('s-pack'), sAge = $('s-age');
   const ageWord = v => v <= 0.02 ? 'off' : v <= 0.35 ? 'low' : v <= 0.7 ? 'medium' : v <= 1.2 ? 'high' : 'extreme';
   const labelWord = v => v >= 24 ? 'zero labels' : v <= 6 ? 'lots' : v <= 12 ? 'normal' : v <= 18 ? 'sparse' : 'minimal';
@@ -406,11 +418,12 @@
       const nearA = Math.abs(e.clientX - xOf(a0)) <= GRAB, nearB = Math.abs(e.clientX - xOf(b0)) <= GRAB;
       const inside = v0 > a0 && v0 < b0;
       let mode;          // 'a' | 'b' | 'pan'
-      if (nearA && nearB) mode = inside ? 'pan' : v0 <= a0 ? 'a' : 'b';   // narrow window: inside pans; stacked pair: side decides
+      if (nearA && nearB) mode = 'pan';   // stacked/narrow pair: drag moves BOTH; spread by clicking outside the dots
       else if (nearA) mode = 'a';
       else if (nearB) mode = 'b';
       else if (inside) mode = 'pan';
       else mode = v0 < a0 ? 'a' : 'b';
+      setSelPart(mode === 'pan' ? 'win' : mode);   // highlight what was grabbed; arrows nudge it
       const move = ev => {
         const nv = val(ev);
         if (mode === 'pan') {
@@ -430,6 +443,31 @@
   }
   wireDual($('time-dual'));
   const hDual = $('time-dual-h'); if (hDual) wireDual(hDual);
+
+  // --- timeline keyboard control: click a dot or the bar to select it (subtle gold halo),
+  //     then ←/→ nudges it; Shift+←/→ moves faster; Esc or clicking elsewhere deselects ---
+  let selPart = null;   // 'a' | 'b' | 'win' | null
+  function setSelPart(p) {
+    selPart = p;
+    for (const el of [tMinEl, hMinEl]) if (el) el.classList.toggle('selpart', p === 'a');
+    for (const el of [tMaxEl, hMaxEl]) if (el) el.classList.toggle('selpart', p === 'b');
+    for (const el of [tFill, hFill]) if (el) el.classList.toggle('selpart', p === 'win');
+  }
+  function nudge(dv) {
+    let a = +tMinEl.value, b = +tMaxEl.value;
+    if (selPart === 'win') { const w = b - a; a = Math.max(0, Math.min(1000 - w, a + dv)); b = a + w; }
+    else if (selPart === 'a') a = Math.max(0, Math.min(b, a + dv));
+    else if (selPart === 'b') b = Math.max(a, Math.min(1000, b + dv));
+    tMinEl.value = a; tMaxEl.value = b; applyTime();
+  }
+  document.addEventListener('keydown', e => {
+    if (!selPart || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 20 : 2));
+    } else if (e.key === 'Escape') setSelPart(null);
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('.dual')) setSelPart(null); });
   // off (default) = keep the all-time layout, only sizes/visibility track the range;
   // on = re-rank positions by activity inside the range
   $('s-redist').onchange = () => { if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute($('s-redist').checked); };
