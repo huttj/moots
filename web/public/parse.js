@@ -40,13 +40,15 @@
 
     const mentions = new Map(), replies = new Map(), names = new Map(), ids = new Map();
     const first = new Map(), last = new Map();
-    const yearCt = new Map();                 // sn -> Map(year -> count)
+    const monCt = new Map();                  // sn -> Map(monthIdx -> count), monthIdx = utcYear*12 + utcMonth
     const co = new Map();                      // sn -> Map(other -> weight)
 
-    const bumpYear = (sn, yr) => {
-      if (!yr) return;
-      let m = yearCt.get(sn); if (!m) yearCt.set(sn, m = new Map());
-      m.set(yr, (m.get(yr) || 0) + 1);
+    const bumpMonth = (sn, dt, ri) => {   // ri: 0 = mention, 1 = reply
+      if (!dt) return;
+      const mi = dt.getUTCFullYear() * 12 + dt.getUTCMonth();
+      let m = monCt.get(sn); if (!m) monCt.set(sn, m = new Map());
+      let c = m.get(mi); if (!c) m.set(mi, c = [0, 0]);
+      c[ri]++;
     };
     const bumpDate = (sn, dt) => {
       if (!dt) return;
@@ -61,7 +63,6 @@
     for (const it of tweets) {
       const t = it.tweet || it;
       const dt = parseDate(t.created_at);
-      const yr = dt ? dt.getUTCFullYear() : null;
 
       const ms = (t.entities && t.entities.user_mentions) || [];
       const here = [];
@@ -72,14 +73,14 @@
         mentions.set(sn, (mentions.get(sn) || 0) + 1);
         names.set(sn, m.name || '');
         ids.set(sn, m.id_str || '');
-        bumpYear(sn, yr); bumpDate(sn, dt);
+        bumpMonth(sn, dt, 0); bumpDate(sn, dt);
       }
 
       const rsn = t.in_reply_to_screen_name;
       if (rsn && rsn !== self) {
         replies.set(rsn, (replies.get(rsn) || 0) + 1);
         if (!names.has(rsn)) names.set(rsn, rsn);
-        bumpYear(rsn, yr); bumpDate(rsn, dt);
+        bumpMonth(rsn, dt, 1); bumpDate(rsn, dt);
       }
 
       // co-mention edges among distinct handles in the same tweet
@@ -92,16 +93,24 @@
     const people = [];
     for (const sn of all) {
       const m = mentions.get(sn) || 0, r = replies.get(sn) || 0;
-      const yrs = yearCt.get(sn);
-      let peakYear = null, pk = -1;
-      if (yrs) for (const [y, c] of yrs) if (c > pk) { pk = c; peakYear = y; }
-      people.push({
+      const mons = monCt.get(sn);
+      let peakYear = null;
+      if (mons) {
+        const yrs = new Map();
+        for (const [mi, c] of mons) { const y = Math.floor(mi / 12); yrs.set(y, (yrs.get(y) || 0) + c[0] + c[1]); }
+        let pk = -1;
+        for (const [y, c] of yrs) if (c > pk) { pk = c; peakYear = y; }
+      }
+      const person = {
         sn, name: names.get(sn) || sn, id: ids.get(sn) || '',
         mentions: m, replies: r, total: m + r,
         first: first.has(sn) ? first.get(sn).toISOString() : null,
         last: last.has(sn) ? last.get(sn).toISOString() : null,
         peakYear,
-      });
+      };
+      // tl: sparse [monthIdx, mentions, replies, ...] triples, ascending — lets the UI re-weigh by time window
+      if (mons) person.tl = Array.from(mons).sort((a, b) => a[0] - b[0]).flatMap(([mi, c]) => [mi, c[0], c[1]]);
+      people.push(person);
     }
     people.sort((a, b) => b.total - a.total);
 

@@ -92,9 +92,12 @@
 
   /* constellation */
   #constellation{background:radial-gradient(1200px 800px at 50% 45%,#15152a 0%,#0a0a12 70%)}
-  #cv{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab}
+  #cv{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   #cv:active{cursor:grabbing}
   #glcv{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
+  #glperf{position:absolute;left:8px;bottom:8px;z-index:50;display:none;pointer-events:none;
+    font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;color:#9fe6b0;
+    background:rgba(8,8,16,.72);border:1px solid #2a2a3e;border-radius:7px;padding:4px 8px;letter-spacing:.2px}
   .legend{position:absolute;left:16px;bottom:16px;z-index:10;background:rgba(16,16,30,.82);
     border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:12px;color:var(--dim);
     backdrop-filter:blur(6px);max-width:286px}
@@ -208,6 +211,18 @@
   .srow label{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px}
   .srow label span{color:var(--dim);font-variant-numeric:tabular-nums}
   .srow input[type=range]{width:100%;accent-color:var(--accent)}
+  /* dual-ended range (time scrubber) */
+  .dual{position:relative;height:26px;margin-top:6px;touch-action:none;cursor:pointer}
+  .dual-track{position:absolute;top:11px;left:0;right:0;height:4px;border-radius:2px;background:#2a2a3e}
+  .dual-fill{position:absolute;top:11px;height:4px;border-radius:2px;background:var(--accent)}
+  .dual input[type=range]{position:absolute;top:0;left:0;width:100%;height:26px;margin:0;background:none;
+    pointer-events:none;-webkit-appearance:none;appearance:none}
+  .dual input[type=range]::-webkit-slider-thumb{pointer-events:none;-webkit-appearance:none;appearance:none;
+    width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid #1a1400;cursor:pointer}
+  .dual input[type=range]::-moz-range-thumb{pointer-events:none;width:15px;height:15px;border-radius:50%;
+    background:var(--accent);border:2px solid #1a1400;cursor:pointer}
+  .dual input[type=range]::-webkit-slider-runnable-track{background:none}
+  .dual input[type=range]::-moz-range-track{background:none}
   .seg{display:flex;background:#1c1c2c;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:5px}
   .seg button{flex:1;background:transparent;color:var(--dim);border:0;padding:7px 8px;font-size:12.5px;font-weight:600;cursor:pointer}
   .seg button.on{background:var(--accent);color:#1a1400}
@@ -236,6 +251,36 @@
     background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.4) 50%,transparent 70%);
     background-size:220% 100%;animation:btnshine .85s linear infinite}
   @keyframes btnshine{to{background-position:-220% 0}}
+
+  /* ---- mobile / small screens: keep the chrome usable on a phone ---- */
+  @media (max-width:760px){
+    header{gap:9px;padding:0 12px}
+    .sub{display:none}                 /* drop the subhead caption */
+    a.ghlink{display:none}             /* github link -> repo is desktop-discoverable */
+    .search input{width:128px}
+    .ac{width:min(308px,84vw)}
+    .toggle button{padding:7px 11px;font-size:12.5px}
+    .hbtn{padding:7px 10px;font-size:12.5px}
+    .hbtn.icon{padding:7px 9px}
+    .legend{max-width:min(260px,72vw);font-size:11.5px;padding:10px 12px}
+    .settings{width:min(292px,94vw);right:8px;top:58px;max-height:calc(100% - 70px);overflow-y:auto}
+    .info{width:min(268px,92vw)}
+    #publish{left:8px;width:min(424px,94vw)}
+    .hist-head{flex-wrap:wrap}
+    .hist-ctrls{margin-left:0}
+  }
+  @media (max-width:520px){
+    .search{display:none}              /* tap a node instead; saves header width */
+    .brand{font-size:15px}
+    .cc{display:none}                  /* pinch to zoom on touch */
+    .legend{bottom:10px;left:10px}
+    .welcome{padding:15px 16px;bottom:14px}
+  }
+  @media (max-width:400px){
+    .toggle{display:none}              /* histogram view hidden on very small screens */
+    header{gap:6px;padding:0 9px}
+    .hbtn.primary{padding:7px 9px}
+  }
 
   /* clean-screenshot mode: hide UI chrome */
   body.shot header,body.shot .legend,body.shot .cc,body.shot .info,body.shot .welcome,
@@ -274,13 +319,15 @@
   <section id="constellation" class="view active">
     <canvas id="glcv"></canvas>
     <canvas id="cv"></canvas>
+    <div id="glperf"></div>
     <div class="loading" id="cloading">building your universe…</div>
     <div class="legend">
       <b id="legend-title">constellation</b>
-      <div class="lrow"><b class="hl">Distance</b> from center = how often they interact with <span id="legend-who">the center</span> — closest moots nearest the center.</div>
-      <div class="lrow"><b class="hl">Color</b> = <span id="legend-color">recency</span> <span id="legend-color-extra">(when they were last in the orbit)</span>.</div>
+      <div class="lrow"><b class="hl">Size &amp; distance</b> = frequency of interactions with <span id="legend-who">you</span>.</div>
+      <div class="lrow"><b class="hl">Color</b> = <span id="legend-color">time of last interaction</span><span id="legend-color-extra"></span>.</div>
       <div class="grad" id="legend-grad"></div>
       <div class="glabels" id="legend-glabels"><span id="gmin">older</span><span id="gmax">recent</span></div>
+      <div class="lrow" id="legend-lines"><b class="hl">Lines</b> connect those who show up together in the same tweets.</div>
       <div class="lcounts" id="legend-counts" style="display:none"></div>
     </div>
     <div class="info" id="info"></div>
@@ -347,7 +394,8 @@
     <img id="pub-preview" class="pub-preview" alt="share preview">
     <div id="pub-capturing" class="pub-capturing">capturing preview…</div>
   </div>
-  <p id="pub-desc" class="pub-desc">This preview image will appear alongside the URL when you share. Adjust the graph and click <span style="color:var(--accent)">↻ recapture</span> to reframe. We save the numbers and the image; never your tweets.</p>
+  <p id="pub-desc" class="pub-desc">This preview shows your <b>whole constellation</b> and appears alongside the URL when you share. We save the numbers and the image; never your tweets.</p>
+  <label class="pcheck" id="p-curview-row" style="margin:-2px 0 11px"><input type="checkbox" id="p-curview"> Share my current view instead of the whole map</label>
   <div class="actions">
     <button class="hbtn primary" id="p-share">𝕏 &nbsp;Share on X</button>
     <button class="hbtn" id="p-copy">Copy link</button>
@@ -395,11 +443,11 @@
   </div>
   <div class="srow">
     <label>Dot size <span id="v-size">3.0×</span></label>
-    <input type="range" id="s-size" min="0.4" max="6" step="0.05" value="3">
+    <input type="range" id="s-size" min="0.4" max="10" step="0.05" value="3">
   </div>
   <div class="srow">
     <label>Spread / distance <span id="v-spread">1.0×</span></label>
-    <input type="range" id="s-spread" min="0.5" max="2.5" step="0.05" value="1">
+    <input type="range" id="s-spread" min="0.5" max="5" step="0.05" value="1">
   </div>
   <div class="srow">
     <label>Packing <span id="v-pack">even</span></label>
@@ -411,11 +459,41 @@
   </div>
   <div class="srow">
     <label>Weight by age <span id="v-age">off</span></label>
-    <input type="range" id="s-age" min="0" max="1" step="0.05" value="0">
+    <input type="range" id="s-age" min="0" max="2" step="0.05" value="0">
   </div>
   <div class="srow">
     <label>Label density <span id="v-label">minimal</span></label>
     <input type="range" id="s-label" min="4" max="24" step="1" value="22">
+  </div>
+  <div class="srow">
+    <label>Time range <span id="v-time">all time</span></label>
+    <div class="dual" id="time-dual">
+      <div class="dual-track"></div>
+      <div class="dual-fill" id="time-fill"></div>
+      <input type="range" id="t-min" min="0" max="1000" step="1" value="0">
+      <input type="range" id="t-max" min="0" max="1000" step="1" value="1000">
+    </div>
+  </div>
+  <div class="srow" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+    <label for="s-redist" style="margin:0;cursor:pointer" title="Re-rank positions by activity inside the selected time range (dots travel on each change) instead of keeping the all-time layout">Sync positions to range</label>
+    <input type="checkbox" id="s-redist" style="accent-color:var(--accent);width:16px;height:16px">
+  </div>
+  <div id="gl-settings" style="display:none">
+    <div class="srow">
+      <label>Avatar resolution</label>
+      <div class="seg" id="seg-res">
+        <button data-res="64" class="on">Standard</button>
+        <button data-res="128">High</button>
+      </div>
+    </div>
+    <div class="srow" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <label for="s-aa" style="margin:0;cursor:pointer">Smooth edges</label>
+      <input type="checkbox" id="s-aa" checked style="accent-color:var(--accent);width:16px;height:16px">
+    </div>
+    <div class="srow" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <label for="s-fps" style="margin:0;cursor:pointer">Show FPS</label>
+      <input type="checkbox" id="s-fps" style="accent-color:var(--accent);width:16px;height:16px">
+    </div>
   </div>
   <button class="reset" id="s-shot-btn" style="margin-bottom:9px">📸 Clean screenshot mode · Esc to exit</button>
   <button class="reset" id="s-reset">Reset to defaults</button>
@@ -427,6 +505,7 @@
   <button data-s="1">Standard · 1×</button>
   <button data-s="2">High · 2×</button>
   <button data-s="3">Ultra · 3×</button>
+  <button data-s="5">Huge · 5×</button>
 </div>
 
 <!-- file input + busy -->
@@ -439,7 +518,11 @@
 <script src="jszip.min.js" onerror="window.JSZip=null"></script>
 <script>
 // avatar/banner resolvers are set per data source (demo = local files, upload = Worker)
+// R2_HOST: once the bucket's custom domain is live, loads come straight from the CDN
+// (no Worker). Empty = use /pfp directly. AV2 = fallback when the primary URL misses.
+const R2_HOST = 'https://img.moots.fyi';   // R2 bucket on a custom domain — served WITHOUT the Worker, full CDN, no r2.dev rate limits
 let AV  = sn => 'avatars/'+encodeURIComponent(sn)+'.jpg';
+let AV2 = null;   // fallback resolver (set for upload/shared: R2 miss -> /pfp, which resolves + populates R2)
 let resolveBanner = sn => Promise.resolve(window.BANNERS&&window.BANNERS[sn] ? 'https://'+window.BANNERS[sn]+'/1500x500' : null);
 const CORSOK = location.protocol !== 'file:';     // crossOrigin only works over http(s)
 
@@ -450,6 +533,9 @@ const byId = new Map(people.map(p=>[p.sn,p]));
 // ---- time color scale (by last interaction) ----
 const times = people.map(p=>p.last?Date.parse(p.last):null).filter(Boolean);
 const tMin = d3.min(times), tMax = d3.max(times);
+// full activity span (earliest start -> latest end) drives the time-range scrubber
+const firstTimes = people.map(p=>p.first?Date.parse(p.first):null).filter(Boolean);
+const tFirstMin = d3.min(firstTimes) || tMin;
 const colorTime = d3.scaleSequential(d3.interpolatePlasma).domain([tMin,tMax]);
 function recencyColor(p){ return p.last ? colorTime(Date.parse(p.last)) : "#555"; }
 const fmtMonth = d3.timeFormat("%b %Y");
@@ -478,8 +564,12 @@ function requestAvatar(sn){
   avState.set(sn,s);
   const img = new Image();
   if(CORSOK) img.crossOrigin='anonymous';     // keep canvas untainted -> screenshots work
-  img.onload = ()=>{ s.st='ok'; s.img=img; scheduleDraw(); };
-  img.onerror = ()=>{ s.st='err'; scheduleDraw(); };
+  let triedFb=false;
+  img.onload = ()=>{ s.st='ok'; s.img=img; if(GL && glr) glr.addAvatar(sn, img); scheduleDraw(); };  // upload to atlas ONCE, here
+  img.onerror = ()=>{
+    if(!triedFb && AV2){ triedFb=true; img.src = AV2(sn); return; }   // R2 miss -> /pfp (resolves + populates R2 for next time)
+    s.st='err'; scheduleDraw();
+  };
   img.src = AV(sn);
   return s;
 }
@@ -539,10 +629,23 @@ const canvas = document.getElementById('cv');
 const ctx = canvas.getContext('2d');
 let DPR = Math.min(2, window.devicePixelRatio||1);
 let W=0,H=0;
-// optional WebGL renderer for the bulk (nodes + links + avatars). ?gl=1 to try it.
-const GLMODE = new URLSearchParams(location.search).get('gl')==='1';
+// WebGL renderer for the bulk (nodes + links + avatars). On by default; ?gl=0 forces
+// the canvas-2D fallback (also used automatically when WebGL2 is unavailable).
+const _glParams = new URLSearchParams(location.search);
+const GLMODE = _glParams.get('gl')!=='0';
 let glr = GLMODE && window.GLRenderer ? window.GLRenderer(document.getElementById('glcv')) : null;
 const GL = !!glr;
+if(GL){
+  const gs=document.getElementById('gl-settings'); if(gs) gs.style.display='';   // reveal avatar-res + AA + fps controls
+  // default avatar resolution to High where the GPU can take it, Standard otherwise
+  const recCell = glr.recommendedCell ? glr.recommendedCell() : 64;
+  if(recCell!==glr.cell) glr.setCellSize(recCell);
+  const sr=document.getElementById('seg-res');
+  if(sr) sr.querySelectorAll('button').forEach(x=>x.classList.toggle('on', +x.dataset.res===recCell));   // reflect default in the toggle
+  if(_glParams.get('perf')==='1' || _glParams.get('gl')==='1'){   // fps overlay: opt-in for debugging
+    const gp=document.getElementById('glperf'); if(gp){ gp.style.display='block'; gp.textContent='warming up…'; }
+  }
+}
 function resize(){
   const r=canvas.getBoundingClientRect();
   W=r.width; H=r.height;
@@ -574,10 +677,29 @@ function ageNorm(lastIso){
 }
 // dot size: contrast blends uniform(0)/full(1)/exaggerated(>1); AGE_WEIGHT mixes in recency
 // (older -> smaller, recent -> bigger).
-function nodeSize(total, lastIso){
-  const base = sizeScale(total)*SIZE_CONTRAST + 19*(1-SIZE_CONTRAST);
+function nodeSize(total, lastIso, scale){
+  const base = (scale||sizeScale)(total)*SIZE_CONTRAST + 19*(1-SIZE_CONTRAST);
   const aMul = 0.4 + 0.8*ageNorm(lastIso);
   return Math.max(0.5, base*(1 - AGE_WEIGHT + AGE_WEIGHT*aMul)) * SIZE_MUL;
+}
+
+// ---- per-window weights (time scrubber) ----
+// p.tl = sparse [monthIdx, mentions, replies, ...] triples (monthIdx = utcYear*12 + utcMonth),
+// from parse.js. When the scrubber narrows the window, sizes are recomputed from activity
+// INSIDE it, on a scale anchored to the window's own max — so relative sizes re-rank per era.
+const HAS_TL = people.some(p=>p.tl && p.tl.length);
+let winScale = null;            // sqrt scale over visible-window totals (null = full range)
+let winCount = 0;               // visible-node count for the active window (drives radius re-ranking)
+const msMonth = ms => { const d=new Date(ms); return d.getUTCFullYear()*12+d.getUTCMonth(); };
+function tlSum(tl, mA, mB){     // [mentions, replies] in months mA..mB inclusive; null = no bucket data
+  if(!tl || !tl.length) return null;
+  let m=0, r=0;
+  for(let i=0;i<tl.length;i+=3){ const mo=tl[i]; if(mo>mB) break; if(mo>=mA){ m+=tl[i+1]; r+=tl[i+2]; } }
+  return [m,r];
+}
+function currentSize(n){
+  if(winScale && n.visTotal!=null) return nodeSize(n.visTotal, n.last, winScale);
+  return nodeSize(n.total, n.last);
 }
 
 // "me" at center
@@ -593,7 +715,8 @@ const GOLDEN = Math.PI*(3-Math.sqrt(5)); // 137.5°
 // radius by RANK (people are sorted by closeness). ~0.5 = evenly-packed disc;
 // higher packs the centre tighter & fans the edge looser. Adjustable via the panel.
 let RADIUS_POW = 0.5;   // 0.5 = evenly-packed disc ("even"); set via signed Packing slider
-function rankRadius(rank){ return Rmin + (Rmax-Rmin)*Math.pow(N>1? rank/(N-1):0, RADIUS_POW); }
+function rankRadiusOf(rank,count){ return Rmin + (Rmax-Rmin)*Math.pow(count>1? rank/(count-1):0, RADIUS_POW); }
+function rankRadius(rank){ return rankRadiusOf(rank, N); }
 const nodes = [me];
 people.forEach((p,i)=>{
   const rt = rankRadius(i);
@@ -602,6 +725,7 @@ people.forEach((p,i)=>{
   nodes.push(Object.assign({}, p, {
     rTarget: rt, angle: ang, baseAngle: ang, commColor: null, _commRGB: null, isHalo: false, rank: i,
     _recRGB: toRGB(recencyColor(p)),
+    _firstMs: p.first?Date.parse(p.first):null, _lastMs: p.last?Date.parse(p.last):null,   // active span, for the scrubber
     tx, ty,
     size: nodeSize(p.total, p.last),
     x: tx + (Math.random()-.5)*8,
@@ -626,15 +750,17 @@ function highlightSet(sn){
   const s=new Set([sn]); const nb=neighbors.get(sn); if(nb) nb.forEach(x=>s.add(x)); return s;
 }
 
-let needDraw=false;
+let needDraw=false, firstSettle=true;   // firstSettle: auto-fit the view once, after the initial layout settles
 function scheduleDraw(){ needDraw=true; }
 const sim = d3.forceSimulation(nodes)
   .force('x', d3.forceX(d=>d.tx||0).strength(d=>d.me?0:0.30))
   .force('y', d3.forceY(d=>d.ty||0).strength(d=>d.me?0:0.30))
-  .force('collide', d3.forceCollide(d=>d.size+1.6).strength(.85))
+  .force('collide', d3.forceCollide(d=>d.tHidden?0:d.size+1.6).strength(.85))
   .alpha(0.9).alphaDecay(0.028)
-  .on('tick', scheduleDraw)
-  .on('end', ()=>{ document.getElementById('cloading').style.display='none'; needDraw=true; draw(); });
+  .on('tick', ()=>{ glLinksDirty=true; scheduleDraw(); })   // nodes moved -> arched link geometry is stale
+  .on('end', ()=>{ document.getElementById('cloading').style.display='none';
+    if(firstSettle){ firstSettle=false; fitView(true); }   // frame the whole constellation on first load (animated)
+    needDraw=true; draw(); });
 
 // hide loader once it's visibly settled
 setTimeout(()=>{document.getElementById('cloading').style.display='none';}, 2600);
@@ -669,59 +795,147 @@ d3.select(canvas).call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(
 document.getElementById('zin').onclick =()=>d3.select(canvas).transition().duration(250).call(zoom.scaleBy,1.5);
 document.getElementById('zout').onclick=()=>d3.select(canvas).transition().duration(250).call(zoom.scaleBy,1/1.5);
 document.getElementById('zreset').onclick=()=>resetView();
-function resetView(){
-  d3.select(canvas).transition().duration(550)
-    .call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(0.16));
+function resetView(){ fitView(true); }
+// fit the whole constellation into the viewport (with a little margin)
+function fitTransform(){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for(const n of nodes){ const r=n.size||0;
+    if(n.x-r<minX)minX=n.x-r; if(n.x+r>maxX)maxX=n.x+r;
+    if(n.y-r<minY)minY=n.y-r; if(n.y+r>maxY)maxY=n.y+r; }
+  if(!isFinite(minX)){ minX=minY=-100; maxX=maxY=100; }
+  const bw=Math.max(1,maxX-minX), bh=Math.max(1,maxY-minY);
+  const cx=(minX+maxX)/2, cy=(minY+maxY)/2;
+  let k=0.92*Math.min(W/bw, H/bh);
+  k=Math.max(0.04, Math.min(60, k));
+  return d3.zoomIdentity.translate(W/2-cx*k, H/2-cy*k).scale(k);
+}
+function fitView(animate){
+  const t=fitTransform(), sel=d3.select(canvas);
+  if(animate) sel.transition().duration(550).call(zoom.transform, t);
+  else sel.call(zoom.transform, t);
 }
 
 // ---- draw ----
-function frame(){ if(needDraw){ needDraw=false; draw(); } requestAnimationFrame(frame); }
+let _ft0=0, _fn=0, _fdraw=0;
+function frame(ts){
+  if(needDraw){ needDraw=false; _fdraw++; draw(); }
+  if(GL){
+    _fn++;
+    if(!_ft0) _ft0=ts;
+    else if(ts-_ft0>=500){
+      glStats.fps = Math.round(_fn*1000/(ts-_ft0));
+      glStats.drew = _fdraw;
+      _fn=0; _fdraw=0; _ft0=ts;
+      const el=document.getElementById('glperf');
+      if(el && el.style.display!=='none') el.textContent = `${glStats.fps} fps · ${glStats.drew} draws/½s · ${glStats.vis.toLocaleString()} on-screen · ${glStats.av} faces · ${nodes.length.toLocaleString()} total`;
+    }
+  }
+  requestAnimationFrame(frame);
+}
 requestAnimationFrame(frame);
 
 let selSet=new Set(), primarySel=null, hovered=null;   // multi-select; primarySel drives info panel
 
 // ---- WebGL pass: all nodes (circles + avatars + rings) and links, on the GPU ----
 const GRAY=[0.22,0.22,0.30];
-let glInst=null, glLA=null, glLB=null;
+const GL_AVATAR_R = 3.5;               // min on-screen radius (px) before a face shows (uploads are one-time, so we can be generous)
+const glStats = {vis:0, av:0, fps:0};
+let GL_AA = 1;                          // circle anti-aliasing (settings toggle)
+let exporting = false;                  // true during a screenshot: render loaded faces, don't fire new fetches
+let glInst=null;
+const ARCH=0.14;                        // arch height (matches the 2D archTo)
+// quadratic-Bézier control point giving the gentle sideways arch
+function archCtrl(s,t){
+  const dx=t.x-s.x, dy=t.y-s.y, len=Math.hypot(dx,dy)||1, off=len*ARCH;
+  return [(s.x+t.x)/2 - dy/len*off, (s.y+t.y)/2 + dx/len*off];
+}
+// ---- base links: arched GL_LINES, cached in world space (rebuilt only when nodes move) ----
+const BSEG=7;                           // segments per arch
+let glBaseGeom=null, glBaseN=0, glLinksDirty=true;
+function buildBaseLinks(){
+  const need=links.length*BSEG*4;
+  if(!glBaseGeom || glBaseGeom.length<need) glBaseGeom=new Float32Array(need);
+  const g=glBaseGeom; let p=0;
+  for(const l of links){
+    if(l.source.tHidden || l.target.tHidden) continue;   // drop links to filtered-out people
+    const s=l.source, t=l.target, [cx,cy]=archCtrl(s,t);
+    let px=s.x, py=s.y;
+    for(let i=1;i<=BSEG;i++){
+      const u=i/BSEG, iu=1-u, w0=iu*iu, w1=2*iu*u, w2=u*u;
+      const x=w0*s.x+w1*cx+w2*t.x, y=w0*s.y+w1*cy+w2*t.y;
+      g[p++]=px; g[p++]=py; g[p++]=x; g[p++]=y;            // segment as a LINES pair
+      px=x; py=y;
+    }
+  }
+  glBaseN=p/4;                          // number of line segments
+}
+// ---- selection links: arched, anti-aliased gold ribbons (built per frame; few) ----
+const RSEG=14;
+let glRib=null;
+function buildSelRibbons(k){
+  const hw=2.4/k;                       // half-width in world units = ~2.4 device px (constant on screen)
+  let incident=0; for(const l of links) if(selSet.has(l.source.sn)||selSet.has(l.target.sn)) incident++;
+  const need=incident*RSEG*18;          // 6 verts * 3 floats per segment quad
+  if(!glRib || glRib.length<need) glRib=new Float32Array(Math.max(need,18));
+  const v=glRib; let p=0;
+  for(const l of links){
+    if(!(selSet.has(l.source.sn)||selSet.has(l.target.sn))) continue;
+    if(l.source.tHidden || l.target.tHidden) continue;   // skip links to filtered-out people
+    const s=l.source, t=l.target, [cx,cy]=archCtrl(s,t);
+    let px=s.x, py=s.y;
+    for(let i=1;i<=RSEG;i++){
+      const u=i/RSEG, iu=1-u, w0=iu*iu, w1=2*iu*u, w2=u*u;
+      const x=w0*s.x+w1*cx+w2*t.x, y=w0*s.y+w1*cy+w2*t.y;
+      let nx=-(y-py), ny=(x-px); const ln=Math.hypot(nx,ny)||1; nx=nx/ln*hw; ny=ny/ln*hw;   // perpendicular
+      // quad (px,py)->(x,y), expanded by ±perp, side coord ∈{-1,1}
+      v[p++]=px+nx; v[p++]=py+ny; v[p++]=1;  v[p++]=px-nx; v[p++]=py-ny; v[p++]=-1; v[p++]=x+nx; v[p++]=y+ny; v[p++]=1;
+      v[p++]=x+nx;  v[p++]=y+ny;  v[p++]=1;  v[p++]=px-nx; v[p++]=py-ny; v[p++]=-1; v[p++]=x-nx; v[p++]=y-ny; v[p++]=-1;
+      px=x; py=y;
+    }
+  }
+  return p/3;                           // vertex count
+}
 function glDrawGL(){
   glr.begin();
   const k=transform.k, hasSel=selSet.size>0;
   let hi=null;
   if(hasSel){ hi=new Set(); for(const sn of selSet){ hi.add(sn); const nb=neighbors.get(sn); if(nb) nb.forEach(x=>hi.add(x)); } }
-  // links (straight on the GPU): base + gold-incident
-  if(k>0.16 || hasSel){
-    if(!glLA || glLA.length<links.length*4){ glLA=new Float32Array(links.length*4); glLB=new Float32Array(links.length*4); }
-    let a=0,b=0;
-    for(const l of links){
-      const inc = hasSel && (selSet.has(l.source.sn)||selSet.has(l.target.sn));
-      if(inc){ glLB[b++]=l.source.x; glLB[b++]=l.source.y; glLB[b++]=l.target.x; glLB[b++]=l.target.y; }
-      else if(k>0.16){ glLA[a++]=l.source.x; glLA[a++]=l.source.y; glLA[a++]=l.target.x; glLA[a++]=l.target.y; }
-    }
-    if(a) glr.links(glLA, a/4, transform, hasSel?[0.48,0.64,1,0.05]:[0.48,0.64,1,0.10]);
-    if(b) glr.links(glLB, b/4, transform, [1,0.82,0.4,0.72]);
-  }
-  // nodes
+  // links: arched faint base (cached) + arched anti-aliased gold ribbons on selection
+  if(glLinksDirty){ buildBaseLinks(); glLinksDirty=false; }
+  if(k>0.16 && glBaseN) glr.links(glBaseGeom, glBaseN, transform, hasSel?[0.48,0.64,1,0.05]:[0.48,0.64,1,0.10]);
+  if(hasSel){ const n=buildSelRibbons(k); if(n) glr.ribbons(glRib, n, transform, [1,0.82,0.4,0.80], 0.42); }
+  // nodes — only build instances for what's actually on screen (off-screen nodes
+  // are invisible anyway and requesting their avatars would thrash the atlas).
+  const x0=(-transform.x)/k, y0=(-transform.y)/k, x1=(W-transform.x)/k, y1=(H-transform.y)/k, pad=80/k;
   if(!glInst || glInst.length<nodes.length*glr.FLOATS) glInst=new Float32Array(nodes.length*glr.FLOATS);
-  const inst=glInst; let p=0;
+  const inst=glInst; let p=0, vis=0, av=0;
   for(const n of nodes){
     if(n.me) continue;
+    if(n.x<x0-pad||n.x>x1+pad||n.y<y0-pad||n.y>y1+pad) continue;   // cull off-screen
+    if(n.tHidden) continue;                                         // time-range scrubber
+    vis++;
     const dim = hi && !hi.has(n.sn);
     const isSel = selSet.has(n.sn), isHov = hovered===n.sn;
     const halo = colorMode==='community' && n.isHalo;
-    const alpha = dim?0.12 : (halo && !isSel ? 0.28 : 1);
+    const alpha = dim?0.22 : (halo && !isSel ? 0.28 : 1);
     let rgb = (colorMode==='community' && n._commRGB) ? n._commRGB : (n._recRGB||GRAY);
     let cr=rgb[0],cg=rgb[1],cb=rgb[2];
     if(isSel){ cr=1; cg=0.82; cb=0.4; } else if(isHov){ cr=1; cg=1; cb=1; }
     let u0=0,u1=0,u2=0,u3=0,tex=0;
-    if(n.size*k>=3.2 && !dim && !halo){
-      const st = avState.get(n.sn) || requestAvatar(n.sn);
-      if(st && st.st==='ok'){ const u=glr.addAvatar(n.sn, st.img); if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; tex=1; } }
+    // only fetch/show a face once it's big enough to read (>=9px radius => 18px wide).
+    // below that it's indistinguishable from a coloured dot, and showing thousands of
+    // tiny faces overflows the avatar atlas and forces it to re-upload every frame.
+    if(n.size*k>=GL_AVATAR_R && !halo){              // dimmed nodes still show their face, just muted (alpha above)
+      if(!exporting && !avState.has(n.sn)) requestAvatar(n.sn);   // kick off the fetch (idempotent, cheap); upload happens in onload
+      const u = glr.uvOf(n.sn);                      // pure lookup — null until the face has loaded+uploaded
+      if(u){ u0=u[0]; u1=u[1]; u2=u[2]; u3=u[3]; tex=1; av++; }
     }
     inst[p++]=n.x; inst[p++]=n.y; inst[p++]=n.size;
     inst[p++]=cr; inst[p++]=cg; inst[p++]=cb; inst[p++]=alpha;
     inst[p++]=u0; inst[p++]=u1; inst[p++]=u2; inst[p++]=u3; inst[p++]=tex;
   }
-  glr.nodes(inst, p/glr.FLOATS, transform, colorMode==='community'?0.14:0.07);
+  glr.nodes(inst, p/glr.FLOATS, transform, colorMode==='community'?0.14:0.07, GL_AA);
+  glStats.vis=vis; glStats.av=av;
 }
 
 function draw(){
@@ -765,6 +979,7 @@ function draw(){
     ctx.lineWidth = Math.max(0.5, 0.8/k);
     ctx.beginPath();
     if(k>0.16) for(const l of links){
+      if(l.source.tHidden || l.target.tHidden) continue;
       if(hasSel && incident(l)) continue;
       archTo(l.source,l.target);
     }
@@ -774,7 +989,7 @@ function draw(){
       ctx.strokeStyle='rgba(255,209,102,0.72)';
       ctx.lineWidth=Math.max(1.2,1.8/k);
       ctx.beginPath();
-      for(const l of links) if(incident(l)) archTo(l.source,l.target);
+      for(const l of links) if(incident(l) && !l.source.tHidden && !l.target.tHidden) archTo(l.source,l.target);
       ctx.stroke();
     }
   }
@@ -787,6 +1002,7 @@ function draw(){
   for(const n of nodes){
     if(n.me) continue;
     if(n.x<x0-pad||n.x>x1+pad||n.y<y0-pad||n.y>y1+pad) continue; // cull
+    if(n.tHidden) continue;                                       // time-range scrubber
     const screenR = n.size*k;
     const col = (colorMode==='community' && n.commColor) ? n.commColor : recencyColor(n);
     const isSel = selSet.has(n.sn);
@@ -902,7 +1118,7 @@ function worldFromEvent(ev){
 function pick(wx,wy){
   let best=null, bd=Infinity;
   for(const n of nodes){
-    if(n.me) continue;
+    if(n.me || n.tHidden) continue;   // don't pick filtered-out (invisible) nodes
     const dx=n.x-wx, dy=n.y-wy, d=dx*dx+dy*dy;
     const rr=(n.size+4/transform.k);
     if(d<rr*rr && d<bd){ bd=d; best=n; }
@@ -954,12 +1170,22 @@ function showInfo(n){
         onerror="this.style.background='${colorFor(n.sn)}';this.removeAttribute('src')">
       <h3>${escapeHtml(n.name||n.sn)}</h3>
       <div class="ih"><a href="https://x.com/${n.sn}" target="_blank" rel="noopener">@${n.sn}</a>${moreSel?` · <span style="color:var(--accent)">+${moreSel} more selected</span>`:''}</div>
+      ${(()=>{   // one set of stats: window-scoped while the scrubber is narrowed, all-time otherwise
+        const winOn = winScale && n.visTotal!=null;
+        const total = winOn ? n.visTotal : n.total;
+        const ment  = winOn ? n.visMentions : n.mentions;
+        const rep   = winOn ? n.visReplies : n.replies;
+        const rank  = winOn ? (n.winRank!=null ? '#'+(n.winRank+1) : '—')
+                            : '#'+(people.findIndex(p=>p.sn===n.sn)+1);
+        return `
+      ${winOn?`<div class="meta" style="color:var(--accent);margin-top:-6px;margin-bottom:9px">⏱ ${fmtMonth(new Date(FILT_A))} – ${fmtMonth(new Date(FILT_B))}</div>`:''}
       <div class="stats">
-        <div class="stat"><div class="n">${n.total.toLocaleString()}</div><div class="l">interactions</div></div>
-        <div class="stat"><div class="n">#${people.findIndex(p=>p.sn===n.sn)+1}</div><div class="l">your rank</div></div>
-        <div class="stat"><div class="n">${n.mentions.toLocaleString()}</div><div class="l">mentions</div></div>
-        <div class="stat"><div class="n">${n.replies.toLocaleString()}</div><div class="l">replies</div></div>
-      </div>
+        <div class="stat"><div class="n">${total.toLocaleString()}</div><div class="l">interactions</div></div>
+        <div class="stat"><div class="n">${rank}</div><div class="l">your rank</div></div>
+        <div class="stat"><div class="n">${ment.toLocaleString()}</div><div class="l">mentions</div></div>
+        <div class="stat"><div class="n">${rep.toLocaleString()}</div><div class="l">replies</div></div>
+      </div>`;
+      })()}
       <div class="meta">first seen ${first} · last ${last}
       ${friends.length?`<br>often with ${friends.map(f=>'@'+f.sn).join(', ')}`:''}</div>
       <a class="link" href="${mutualURL(n.sn)}" target="_blank" rel="noopener">${DATA.self?`@${n.sn} ⇄ @${DATA.self}, by date ↗`:`open @${n.sn} on X ↗`}</a>
@@ -1065,19 +1291,67 @@ document.getElementById('tab-hist').onclick =()=>switchTab('hist');
 window.addEventListener('resize',()=>{ DPR=Math.min(2,window.devicePixelRatio||1); resize(); scheduleDraw(); });
 
 // ---- settings (sizes / spread / labels) ----
-function applyLayout(){
+// time-window position mode: false = keep the all-time layout (sizes/visibility still update);
+// true = re-rank the visible set into its own fresh sunflower (positions reflect the era,
+// at the cost of dots travelling on each change). Toggled by the checkbox under Time range.
+let REDISTRIBUTE=false;
+function computeTargets(){
   for(const n of nodes){
     if(n.me){ n.size=38*SIZE_MUL; continue; }
-    n.size = nodeSize(n.total, n.last);
-    const rt = rankRadius(n.rank)*SPREAD_MUL;
-    n.rTarget=rt; n.tx=Math.cos(n.angle)*rt; n.ty=Math.sin(n.angle)*rt;
+    n.size = currentSize(n);
+    let rt, ang=n.angle;
+    if(REDISTRIBUTE && n.winRank!=null){
+      rt = rankRadiusOf(n.winRank, winCount)*SPREAD_MUL;
+      if(layoutMode==='spread') ang = n.winRank*GOLDEN;
+    } else {
+      rt = rankRadius(n.rank)*SPREAD_MUL;
+    }
+    // floor: top ranks' raw radius (Rmin) can fall UNDER the centre avatar; an unreachable
+    // target makes the tween dive them into the centre only for collide to eject them again
+    rt = Math.max(rt, 38*SIZE_MUL + n.size + 6);
+    n.rTarget=rt; n.tx=Math.cos(ang)*rt; n.ty=Math.sin(ang)*rt;
   }
-  // d3 forces cache their targets on initialize — re-add them so new tx/ty/size take effect
+}
+function setRedistribute(v){
+  REDISTRIBUTE=!!v;
+  applyLayoutSmooth();   // glide to the layout the new mode implies (no-op when no window is set)
+}
+// d3 forces cache their targets on initialize — re-add them so new tx/ty/size take effect
+function refreshForces(){
   sim.force('x', d3.forceX(d=>d.tx||0).strength(d=>d.me?0:0.30));
   sim.force('y', d3.forceY(d=>d.ty||0).strength(d=>d.me?0:0.30));
-  sim.force('collide', d3.forceCollide(d=>d.size+1.6).strength(.85));
+  sim.force('collide', d3.forceCollide(d=>d.tHidden?0:d.size+1.6).strength(.85));
+}
+function applyLayout(){
+  computeTargets();
+  refreshForces();
   sim.alpha(0.85).restart();
   scheduleDraw();
+}
+// smooth variant for the time scrubber: glide nodes to their new spots with an eased tween
+// (the force sim covers ~25% of the remaining distance per tick at high alpha — reads as a snap),
+// then hand back to the sim at low alpha so collide can settle overlaps.
+let _tweenId=0;
+function applyLayoutSmooth(){
+  computeTargets();
+  sim.stop();
+  const id=++_tweenId, D=750, t0=performance.now();
+  const moving=[];
+  for(const n of nodes){
+    if(n.me) continue;
+    n.vx=0; n.vy=0;
+    if(n.tHidden){ n.x=n.tx; n.y=n.ty; continue; }   // invisible: snap, no need to animate
+    moving.push([n, n.x, n.y]);
+  }
+  (function step(now){
+    if(id!==_tweenId) return;                        // superseded by a newer scrub
+    const t=Math.min(1,(now-t0)/D);
+    const e = t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;   // cubic in-out
+    for(const [n,sx,sy] of moving){ n.x=sx+(n.tx-sx)*e; n.y=sy+(n.ty-sy)*e; n.vx=0; n.vy=0; }
+    glLinksDirty=true; scheduleDraw();
+    if(t<1) requestAnimationFrame(step);
+    else { refreshForces(); sim.alpha(0.12).restart(); }   // light collide settle at the end
+  })(t0);
 }
 function setSettings(o){
   if(o.sizeMul!=null)   SIZE_MUL=o.sizeMul;
@@ -1087,6 +1361,71 @@ function setSettings(o){
   if(o.radiusPow!=null) RADIUS_POW=o.radiusPow;
   if(o.ageWeight!=null) AGE_WEIGHT=o.ageWeight;
   applyLayout();
+}
+// GL-only display options (avatar resolution + edge anti-aliasing)
+function setGL(o){
+  if(!GL) return;
+  if(o.aa!=null) GL_AA = o.aa ? 1 : 0;
+  if(o.fps!=null){ const gp=document.getElementById('glperf'); if(gp){ gp.style.display=o.fps?'block':'none'; if(o.fps&&!gp.textContent) gp.textContent='warming up…'; } }
+  if(o.avatarRes!=null && o.avatarRes!==glr.cell){
+    glr.setCellSize(o.avatarRes);                       // rebuilds the atlas...
+    for(const [sn,s] of avState) if(s.st==='ok' && s.img) glr.addAvatar(sn, s.img);   // ...re-upload loaded faces
+  }
+  scheduleDraw();
+}
+// time-range scrubber: show anyone whose active span [first,last] OVERLAPS the window [a,b].
+// (overlap, not just last-interaction, so a long-active mood isn't dropped by pulling either end in.)
+let FILT_A=tFirstMin, FILT_B=tMax, _filtKick=null;
+function setTimeFilter(a,b){
+  FILT_A=a; FILT_B=b;
+  const full = a<=tFirstMin && b>=tMax;
+  winScale=null;
+  if(!full && HAS_TL){
+    // window-relative weights: count only the interactions inside [a,b], and anchor the
+    // size scale to the window's own max so whoever dominated THIS era reads biggest
+    const mA=msMonth(a), mB=msMonth(b);
+    let maxVis=0;
+    for(const n of nodes){
+      if(n.me) continue;
+      const s = tlSum(n.tl, mA, mB);
+      if(s){ n.visMentions=s[0]; n.visReplies=s[1]; n.visTotal=s[0]+s[1]; }
+      else { n.visMentions=n.visReplies=n.visTotal=null; }
+      if(n.visTotal>maxVis) maxVis=n.visTotal;
+    }
+    if(maxVis>0) winScale = d3.scaleSqrt().domain([1,maxVis]).range([7,30]);
+    // re-rank closeness inside the window: radius = window rank, on a disc sized to the visible count
+    const vis = nodes.filter(n=>!n.me && n.visTotal>0).sort((a,b)=> b.visTotal-a.visTotal || a.rank-b.rank);
+    winCount = vis.length;
+    for(const n of nodes) n.winRank=null;
+    vis.forEach((n,i)=>{ n.winRank=i; });
+  } else {
+    for(const n of nodes){ n.visMentions=n.visReplies=n.visTotal=null; n.winRank=null; }
+  }
+  for(const n of nodes){
+    if(n.me) continue;
+    if(full) n.tHidden=false;
+    else if(n.visTotal!=null) n.tHidden = n.visTotal<=0;
+    else {                                            // no bucket data (old shares): span overlap
+      const fOk = n._firstMs==null || n._firstMs<=b;  // started on/before the window end
+      const lOk = n._lastMs ==null || n._lastMs >=a;  // still active on/after the window start
+      n.tHidden = !(fOk && lOk);
+    }
+    n.size = currentSize(n);
+  }
+  // once the scrub pauses (not per input event): in redistribute mode glide everyone to their
+  // re-ranked spots; otherwise positions must NOT travel — only let collide absorb the new
+  // sizes (tweening would drag settled nodes back to their raw targets and collide would
+  // shove them out again: a visible move-and-snap-back). Keep an open info panel fresh too.
+  if(HAS_TL){
+    clearTimeout(_filtKick);
+    _filtKick=setTimeout(()=>{
+      if(REDISTRIBUTE) applyLayoutSmooth();
+      else { refreshForces(); sim.alpha(0.12).restart(); }
+      if(primarySel){ const n=nodeById.get(primarySel); if(n) showInfo(n); }
+    }, 300);
+  }
+  glLinksDirty=true;                                  // cached arched links must drop edges to hidden nodes
+  scheduleDraw();
 }
 
 // ---- community detection (modularity / Louvain local-moving on the co-mention graph) ----
@@ -1223,25 +1562,58 @@ function setLayoutMode(m){
     }
   } else {
     layoutSpread();
-    if(colorEl) colorEl.textContent='recency';
-    if(extraEl) extraEl.textContent='(when they were last in the orbit)';
+    if(colorEl) colorEl.textContent='time of last interaction';
+    if(extraEl) extraEl.textContent='';
     if(grad) grad.style.display=''; if(glab) glab.style.display='';
     if(counts) counts.style.display='none';
   }
 }
 
 // ---- export the constellation as a PNG (for sharing / OG image) ----
-function exportPNG(scale, type, quality){
+// fit==='graph': frame the WHOLE constellation as a tight square (ignores current pan/zoom).
+// otherwise:     re-render the current viewport at `scale`× device density.
+function exportPNG(scale, type, quality, fit){
   scale = scale||2; type = type||'image/png';
-  // RE-RENDER the scene at `scale` device-pixel density (not an upscale of the screen
-  // bitmap): temporarily bump the canvas resolution, redraw, snapshot, then restore.
-  const oldDPR=DPR, oldW=canvas.width, oldH=canvas.height;
-  let ow, oh;
+  const cap = Math.min(16384, GL && glr.maxDim ? glr.maxDim : 16384);
+  // RE-RENDER (not an upscale of the screen bitmap): override the view globals, redraw, snapshot, restore.
+  const oldDPR=DPR, oldW=canvas.width, oldH=canvas.height, oldWW=W, oldHH=H, oldT=transform;
+  let ow, oh, tscale=scale;
+  exporting = true;
   try{
-    DPR = scale;
-    canvas.width = ow = Math.round(W*scale);
-    canvas.height = oh = Math.round(H*scale);
-    draw();                                          // crisp render at full target resolution
+    if(fit==='graph'){
+      // bounds of every node (incl. its radius so circles aren't clipped)
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+      for(const n of nodes){ const r=n.size||0;
+        if(n.x-r<minX)minX=n.x-r; if(n.x+r>maxX)maxX=n.x+r;
+        if(n.y-r<minY)minY=n.y-r; if(n.y+r>maxY)maxY=n.y+r; }
+      if(!isFinite(minX)){ minX=minY=-100; maxX=maxY=100; }
+      const cxw=(minX+maxX)/2, cyw=(minY+maxY)/2;
+      let half=Math.max(maxX-minX, maxY-minY)/2; if(!(half>0)) half=100;
+      half *= 1.05;                                  // tiny padding (~2.5% each side)
+      let side=Math.min(Math.round(1200*scale), cap);
+      let k=side/(2*half), tx=side/2-cxw*k, ty=side/2-cyw*k;
+      DPR=1; W=H=side; transform={k,x:tx,y:ty};
+      if(GL){
+        glr.resize(side,side,1);
+        const aw=glr.bufferWidth;                     // browser may cap the GL backing store below `side`
+        if(aw>0 && aw<side-1){ side=aw; k=side/(2*half); tx=side/2-cxw*k; ty=side/2-cyw*k; W=H=side; transform={k,x:tx,y:ty}; glr.resize(side,side,1); }
+      }
+      canvas.width=ow=side; canvas.height=oh=side;
+      tscale=side/1200;
+      draw();
+    } else {
+      const maxScale=Math.max(1,Math.floor(cap/Math.max(W||1,H||1)));
+      scale=Math.min(scale,maxScale); tscale=scale;
+      DPR=scale;
+      if(GL){
+        glr.resize(W,H,scale);
+        const aw=glr.bufferWidth;
+        if(aw>0 && aw<Math.round(W*scale)-1){ scale=Math.max(1,Math.floor(aw/W*20)/20); tscale=scale; glr.resize(W,H,scale); }
+        DPR=scale;
+      }
+      canvas.width=ow=Math.round(W*scale); canvas.height=oh=Math.round(H*scale);
+      draw();
+    }
   } finally {
     // copy the high-res render onto the export canvas BEFORE restoring the screen
     var c=document.createElement('canvas'); c.width=ow; c.height=oh;
@@ -1249,26 +1621,44 @@ function exportPNG(scale, type, quality){
     const g=cx.createRadialGradient(ow*0.5,oh*0.45,0,ow*0.5,oh*0.45,Math.max(ow,oh)*0.7);
     g.addColorStop(0,'#15152a'); g.addColorStop(1,'#0a0a12');
     cx.fillStyle=g; cx.fillRect(0,0,ow,oh);
-    if(GL) cx.drawImage(document.getElementById('glcv'),0,0,ow,oh);   // GPU nodes/links layer
+    if(GL) cx.drawImage(document.getElementById('glcv'),0,0);   // GPU layer, 1:1 -> sharp
     cx.drawImage(canvas,0,0);                        // 1:1, no scaling -> sharp (labels/centre)
-    DPR=oldDPR; canvas.width=oldW; canvas.height=oldH; draw();   // restore on-screen view
+    DPR=oldDPR; W=oldWW; H=oldHH; transform=oldT; canvas.width=oldW; canvas.height=oldH;
+    exporting=false;
+    if(GL) glr.resize(W,H,DPR);                      // restore GPU canvas to screen resolution
+    draw();                                          // restore on-screen view
   }
   cx.fillStyle='rgba(255,209,102,0.96)';
-  cx.font=`800 ${Math.round(21*scale)}px -apple-system,sans-serif`;
+  cx.font=`800 ${Math.round(21*tscale)}px -apple-system,sans-serif`;
   cx.textAlign='right'; cx.textBaseline='bottom';
-  cx.fillText('moots.fyi', ow-20*scale, oh-16*scale);
+  cx.fillText('moots.fyi', ow-20*tscale, oh-16*tscale);
   cx.fillStyle='rgba(233,233,242,0.92)';
-  cx.font=`600 ${Math.round(15*scale)}px -apple-system,sans-serif`;
+  cx.font=`600 ${Math.round(15*tscale)}px -apple-system,sans-serif`;
   cx.textAlign='left';
-  cx.fillText((DATA.self ? '@'+DATA.self+"'s" : 'a') + ' Twitter constellation', 20*scale, oh-16*scale);
+  cx.fillText((DATA.self ? '@'+DATA.self+"'s" : 'a') + ' Twitter constellation', 20*tscale, oh-16*tscale);
   return new Promise((res,rej)=>{ try{ c.toBlob(b=> b?res(b):rej(new Error('toBlob failed')), type, quality); }catch(e){ rej(e); } });
 }
 
+// Auto-tuned defaults that adapt to archive size: smaller archives get bigger dots,
+// huge ones get smaller dots — so the constellation fills the disc nicely either way.
+// Sets the sliders + fires an 'input' so the shell updates its labels and applies it.
+function applyDefaults(){
+  const n = people.length || 500;
+  const sz = Math.max(2, Math.min(6, 130/Math.sqrt(n)));   // ~130/√N, clamped [2,6]
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; };
+  set('s-size', sz.toFixed(2)); set('s-pack', -0.4);       // a touch looser ("loose center")
+  set('s-spread', 1); set('s-contrast', 1); set('s-age', 0); set('s-label', 22);
+  const e=document.getElementById('s-size');
+  if(e) e.dispatchEvent(new Event('input'));               // -> shell.pushSettings: labels + setSettings
+  else { SIZE_MUL=sz; RADIUS_POW=0.5*Math.pow(2,-0.4); applyLayout(); }
+}
+
 // expose hooks for the shell
-window.__moots = { selectPerson, setSettings, setLayoutMode, exportPNG, data:DATA, redraw:scheduleDraw,
+window.__moots = { selectPerson, setSettings, setLayoutMode, setGL, setTimeFilter, setRedistribute, timeBounds:{min:tFirstMin,max:tMax}, glOn:GL, exportPNG, applyDefaults, data:DATA, redraw:scheduleDraw,
   zoomTo:(k)=>d3.select(canvas).transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(k)) };
 
 // initial render
+applyDefaults();          // size the dots for this archive before the first layout settles (then fitView frames it)
 renderHist();
 scheduleDraw();
 if(new URLSearchParams(location.search).get('layout')==='community') setTimeout(()=>setLayoutMode('community'), 200);
@@ -1289,7 +1679,9 @@ async function idbDel(k){ const db=await idbOpen(); return new Promise((res)=>{ 
 window.idbSet=idbSet; window.idbGet=idbGet; window.idbDel=idbDel;
 function configureSources(source){
   if(source==='upload'||source==='shared'){
-    AV = sn => '/pfp?u='+encodeURIComponent(sn);
+    // try the R2 CDN first (no Worker); on a miss fall back to /pfp, which resolves + caches into R2
+    AV  = R2_HOST ? (sn => R2_HOST+'/'+encodeURIComponent(sn.toLowerCase())+'.jpg') : (sn => '/pfp?u='+encodeURIComponent(sn));
+    AV2 = R2_HOST ? (sn => '/pfp?u='+encodeURIComponent(sn)) : null;
     resolveBanner = sn => fetch('/banner?u='+encodeURIComponent(sn)).then(r=>r.json()).then(j=>j.url).catch(()=>null);
   } else { // demo: local static files + prebuilt banner map
     AV = sn => 'avatars/'+encodeURIComponent(sn)+'.jpg';

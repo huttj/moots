@@ -16,12 +16,12 @@
       const self = (window.__moots && window.__moots.data && window.__moots.data.self) || 'someone';
       $('welcome-who').textContent = '@' + self;
       const tw = $('welcome-title-who'); if (tw) tw.textContent = '@' + self + '’s';
-      // demo: show once (remembered). shared link: always greet the new visitor.
-      if (source === 'shared') w.classList.remove('hide');
-      else w.classList.toggle('hide', !!localStorage.getItem('moots_seen'));
+      w.classList.remove('hide');   // greet on every demo/shared visit (× dismisses for this view only)
     } else {
-      w.classList.add('hide'); // viewing your own / a shared map: skip the pitch
-      if (source === 'upload') showShare();   // you just uploaded -> open the share preview
+      w.classList.add('hide'); // viewing your own uploaded map: skip the pitch
+      // open the share preview only right after a FRESH upload — not on every refresh of the saved data
+      let fresh = false; try { fresh = sessionStorage.getItem('moots_fresh') === '1'; sessionStorage.removeItem('moots_fresh'); } catch (_) {}
+      if (source === 'upload' && fresh) showShare();
     }
   }
   window.__shellReady = applyWelcome;
@@ -33,7 +33,8 @@
     $('p-result').textContent = '';
     $('pub-capturing').classList.remove('hide');
     try {
-      currentBlob = await window.__moots.exportPNG(2, 'image/jpeg', 0.9);   // jpeg: small enough to always store
+      const fit = ($('p-curview') && $('p-curview').checked) ? undefined : 'graph';   // default: whole-map square
+      currentBlob = await window.__moots.exportPNG(2, 'image/jpeg', 0.9, fit);   // jpeg: small enough to always store
       const img = $('pub-preview');
       if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
       const u = URL.createObjectURL(currentBlob);
@@ -47,6 +48,7 @@
   }
   $('pclose').onclick = () => $('publish').classList.add('hide');
   $('p-recap').onclick = capturePreview;
+  $('p-curview').onchange = capturePreview;          // toggle whole-map vs current view -> re-capture
 
   // publish the CURRENTLY-previewed image (so the link matches what they see)
   async function ensurePublished() {
@@ -55,7 +57,7 @@
     res.textContent = 'publishing…';
     busy('publishing your constellation…');         // dim + block the page with a prominent indicator
     try {
-      const png = currentBlob || await window.__moots.exportPNG(2, 'image/jpeg', 0.9);
+      const png = currentBlob || await window.__moots.exportPNG(2, 'image/jpeg', 0.9, ($('p-curview') && $('p-curview').checked) ? undefined : 'graph');
       const fd = new FormData();
       fd.append('data', new Blob([JSON.stringify(window.__moots.data)], { type: 'application/json' }));
       if (png) fd.append('image', png, 'og.jpg');
@@ -92,7 +94,7 @@
     try { await navigator.clipboard.writeText(link); const r = $('p-result'); if (!/copied/.test(r.textContent)) r.innerHTML += ' <span style="color:var(--accent)">copied ✓</span>'; } catch (_) {}
   });
   $('btn-shareopen').onclick = showShare;
-  const dismissWelcome = () => { $('welcome').classList.add('hide'); try { localStorage.setItem('moots_seen', '1'); } catch (_) {} };
+  const dismissWelcome = () => { $('welcome').classList.add('hide'); };   // hide for this view; returns on refresh
   $('wclose').onclick = dismissWelcome;
   $('w-dismiss').onclick = dismissWelcome;
 
@@ -204,6 +206,7 @@
       // IndexedDB has no ~5MB cap, so even huge graphs survive the reload; fall back if it fails
       try { await window.idbSet('mootsData', data); }
       catch (_) { try { sessionStorage.setItem('mootsData', JSON.stringify(data)); } catch (__) {} }
+      try { sessionStorage.setItem('moots_fresh', '1'); } catch (_) {}   // so the share popup opens only on a FRESH upload, not every refresh
       location.reload();
     } catch (err) {
       unbusy();
@@ -219,7 +222,7 @@
   const settings = $('settings');
   $('btn-settings').onclick = () => settings.classList.toggle('show');
   const sSize = $('s-size'), sSpread = $('s-spread'), sLabel = $('s-label'), sContrast = $('s-contrast'), sPack = $('s-pack'), sAge = $('s-age');
-  const ageWord = v => v <= 0.02 ? 'off' : v <= 0.35 ? 'low' : v <= 0.7 ? 'medium' : 'high';
+  const ageWord = v => v <= 0.02 ? 'off' : v <= 0.35 ? 'low' : v <= 0.7 ? 'medium' : v <= 1.2 ? 'high' : 'extreme';
   const labelWord = v => v >= 24 ? 'zero labels' : v <= 6 ? 'lots' : v <= 12 ? 'normal' : v <= 18 ? 'sparse' : 'minimal';
   const contrastWord = v => v <= 0.05 ? 'uniform' : v <= 0.4 ? 'low' : v <= 0.7 ? 'medium' : v < 0.95 ? 'high' : v <= 1.05 ? 'full' : v <= 1.8 ? 'extra' : 'max';
   // signed packing: 0 = even (uniform density); <0 looser centre / denser edge; >0 denser centre
@@ -238,6 +241,59 @@
     });
   }
   sSize.oninput = sSpread.oninput = sLabel.oninput = sContrast.oninput = sPack.oninput = sAge.oninput = pushSettings;
+  pushSettings();   // sync labels (and viz, if ready) from the current slider values — order-independent w/ initMoots' applyDefaults
+
+  // GL-only display options (avatar resolution + edge anti-aliasing). Handlers attach now
+  // (they no-op when GL is off); initMoots reveals the panel once the renderer is up.
+  const segRes = $('seg-res');
+  segRes.querySelectorAll('button').forEach(b => b.onclick = () => {
+    segRes.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    if (window.__moots && window.__moots.setGL) window.__moots.setGL({ avatarRes: +b.dataset.res });
+  });
+  $('s-aa').onchange = () => { if (window.__moots && window.__moots.setGL) window.__moots.setGL({ aa: $('s-aa').checked }); };
+  $('s-fps').onchange = () => { if (window.__moots && window.__moots.setGL) window.__moots.setGL({ fps: $('s-fps').checked }); };
+
+  // time-range scrubber: dual-ended slider -> filter people by their last interaction
+  const tMinEl = $('t-min'), tMaxEl = $('t-max'), tFill = $('time-fill');
+  const fmtMs = ms => new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  function applyTime() {
+    let a = +tMinEl.value, b = +tMaxEl.value;
+    tFill.style.left = (a / 10) + '%';
+    tFill.style.width = Math.max(0, (b - a) / 10) + '%';
+    const bn = window.__moots && window.__moots.timeBounds;
+    if (!bn) return;
+    const aMs = bn.min + (bn.max - bn.min) * (a / 1000), bMs = bn.min + (bn.max - bn.min) * (b / 1000);
+    $('v-time').textContent = (a <= 0 && b >= 1000) ? 'all time' : (fmtMs(aMs) + ' – ' + fmtMs(bMs));
+    if (window.__moots.setTimeFilter) window.__moots.setTimeFilter(aMs, bMs);
+  }
+  tMinEl.oninput = () => { if (+tMinEl.value > +tMaxEl.value) tMinEl.value = tMaxEl.value; applyTime(); };
+  tMaxEl.oninput = () => { if (+tMaxEl.value < +tMinEl.value) tMaxEl.value = tMinEl.value; applyTime(); };
+  applyTime();   // initial fill
+  // click/drag anywhere on the track: the nearest handle jumps there and follows the drag.
+  // (the native thumbs are pointer-events:none — when both handles overlapped, the top input
+  // swallowed every event and the pair could get stuck; which side you click breaks the tie)
+  const dual = $('time-dual');
+  dual.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const r = dual.getBoundingClientRect();
+    const val = ev => Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * 1000);
+    const v = val(e), a = +tMinEl.value, b = +tMaxEl.value;
+    const el = v < a ? tMinEl : v > b ? tMaxEl : (v - a <= b - v ? tMinEl : tMaxEl);
+    const move = ev => {
+      let nv = val(ev);
+      nv = el === tMinEl ? Math.min(nv, +tMaxEl.value) : Math.max(nv, +tMinEl.value);
+      el.value = nv; applyTime();
+    };
+    dual.setPointerCapture(e.pointerId);
+    move(e);
+    dual.addEventListener('pointermove', move);
+    const up = () => dual.removeEventListener('pointermove', move);
+    dual.addEventListener('pointerup', up, { once: true });
+    dual.addEventListener('pointercancel', up, { once: true });
+  });
+  // off (default) = keep the all-time layout, only sizes/visibility track the range;
+  // on = re-rank positions by activity inside the range
+  $('s-redist').onchange = () => { if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute($('s-redist').checked); };
 
   // layout toggle: even spread vs community pie-slices
   const seg = $('seg-layout');
@@ -253,10 +309,15 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('shot')) exitShot(); });
 
   $('s-reset').onclick = () => {
-    sSize.value = 3; sSpread.value = 1; sLabel.value = 22; sContrast.value = 1; sPack.value = 0; sAge.value = 0;
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.mode === 'spread'));
-    if (window.__moots) window.__moots.setLayoutMode('spread');
-    exitShot(); pushSettings();
+    tMinEl.value = 0; tMaxEl.value = 1000; applyTime();   // clear the time scrubber
+    const rd = $('s-redist'); if (rd && rd.checked) { rd.checked = false; if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute(false); }
+    if (window.__moots) {
+      window.__moots.setLayoutMode('spread');
+      if (window.__moots.applyDefaults) window.__moots.applyDefaults();   // archive-size-aware defaults + label refresh
+      else { sSize.value = 3; sSpread.value = 1; sLabel.value = 22; sContrast.value = 1; sPack.value = 0; sAge.value = 0; pushSettings(); }
+    }
+    exitShot();
   };
   if (new URLSearchParams(location.search).get('layout') === 'community')
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.mode === 'community'));
@@ -269,7 +330,7 @@
     dlmenu.classList.remove('show');
     if (!window.__moots) return;
     try {
-      const blob = await window.__moots.exportPNG(+b.dataset.s);
+      const blob = await window.__moots.exportPNG(+b.dataset.s, 'image/png', undefined, 'graph');   // tight square of the whole graph
       const self = (window.__moots.data && window.__moots.data.self) || 'moots';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
