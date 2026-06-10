@@ -253,13 +253,19 @@
   $('s-aa').onchange = () => { if (window.__moots && window.__moots.setGL) window.__moots.setGL({ aa: $('s-aa').checked }); };
   $('s-fps').onchange = () => { if (window.__moots && window.__moots.setGL) window.__moots.setGL({ fps: $('s-fps').checked }); };
 
-  // time-range scrubber: dual-ended slider -> filter people by their last interaction
+  // time-range scrubber: dual-ended slider -> filter people by activity in the window.
+  // t-min/t-max are canonical; the histogram page has a mirror slider (th-min/th-max).
   const tMinEl = $('t-min'), tMaxEl = $('t-max'), tFill = $('time-fill');
+  const hMinEl = $('th-min'), hMaxEl = $('th-max'), hFill = $('time-fill-h');
   const fmtMs = ms => new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   function applyTime() {
     let a = +tMinEl.value, b = +tMaxEl.value;
     tFill.style.left = (a / 10) + '%';
     tFill.style.width = Math.max(0, (b - a) / 10) + '%';
+    if (hMinEl) {
+      hMinEl.value = a; hMaxEl.value = b;
+      hFill.style.left = (a / 10) + '%'; hFill.style.width = Math.max(0, (b - a) / 10) + '%';
+    }
     const bn = window.__moots && window.__moots.timeBounds;
     if (!bn) return;
     const aMs = bn.min + (bn.max - bn.min) * (a / 1000), bMs = bn.min + (bn.max - bn.min) * (b / 1000);
@@ -268,29 +274,49 @@
   }
   tMinEl.oninput = () => { if (+tMinEl.value > +tMaxEl.value) tMinEl.value = tMaxEl.value; applyTime(); };
   tMaxEl.oninput = () => { if (+tMaxEl.value < +tMinEl.value) tMaxEl.value = tMinEl.value; applyTime(); };
+  if (hMinEl) {   // keyboard on the histogram mirror writes through to the canonical pair
+    hMinEl.oninput = () => { tMinEl.value = Math.min(+hMinEl.value, +tMaxEl.value); applyTime(); };
+    hMaxEl.oninput = () => { tMaxEl.value = Math.max(+hMaxEl.value, +tMinEl.value); applyTime(); };
+  }
   applyTime();   // initial fill
-  // click/drag anywhere on the track: the nearest handle jumps there and follows the drag.
-  // (the native thumbs are pointer-events:none — when both handles overlapped, the top input
-  // swallowed every event and the pair could get stuck; which side you click breaks the tie)
-  const dual = $('time-dual');
-  dual.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    const r = dual.getBoundingClientRect();
-    const val = ev => Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * 1000);
-    const v = val(e), a = +tMinEl.value, b = +tMaxEl.value;
-    const el = v < a ? tMinEl : v > b ? tMaxEl : (v - a <= b - v ? tMinEl : tMaxEl);
-    const move = ev => {
-      let nv = val(ev);
-      nv = el === tMinEl ? Math.min(nv, +tMaxEl.value) : Math.max(nv, +tMinEl.value);
-      el.value = nv; applyTime();
-    };
-    dual.setPointerCapture(e.pointerId);
-    move(e);
-    dual.addEventListener('pointermove', move);
-    const up = () => dual.removeEventListener('pointermove', move);
-    dual.addEventListener('pointerup', up, { once: true });
-    dual.addEventListener('pointercancel', up, { once: true });
-  });
+  // pointer interaction, same for both sliders (native thumbs are pointer-events:none):
+  //  - near a thumb: grab that handle (overlapped pair: the side you click breaks the tie)
+  //  - inside the window: drag the whole window around, width unchanged
+  //  - outside it: the nearest handle jumps to the click and follows the drag
+  function wireDual(dual) {
+    dual.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const r = dual.getBoundingClientRect();
+      const val = ev => Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * 1000);
+      const xOf = v => r.left + (v / 1000) * r.width;
+      const v0 = val(e), a0 = +tMinEl.value, b0 = +tMaxEl.value;
+      const GRAB = 12;   // px: how close to a thumb counts as grabbing it
+      const nearA = Math.abs(e.clientX - xOf(a0)) <= GRAB, nearB = Math.abs(e.clientX - xOf(b0)) <= GRAB;
+      let mode;          // 'a' | 'b' | 'pan'
+      if (nearA && nearB) mode = v0 < a0 ? 'a' : v0 > b0 ? 'b' : (v0 - a0 <= b0 - v0 ? 'a' : 'b');
+      else if (nearA) mode = 'a';
+      else if (nearB) mode = 'b';
+      else if (v0 > a0 && v0 < b0) mode = 'pan';
+      else mode = v0 < a0 ? 'a' : 'b';
+      const move = ev => {
+        const nv = val(ev);
+        if (mode === 'pan') {
+          const dv = Math.max(-a0, Math.min(1000 - b0, nv - v0));
+          tMinEl.value = a0 + dv; tMaxEl.value = b0 + dv;
+        } else if (mode === 'a') tMinEl.value = Math.min(nv, +tMaxEl.value);
+        else tMaxEl.value = Math.max(nv, +tMinEl.value);
+        applyTime();
+      };
+      dual.setPointerCapture(e.pointerId);
+      if (mode !== 'pan') move(e);   // handles jump to the pointer; panning starts in place
+      dual.addEventListener('pointermove', move);
+      const up = () => dual.removeEventListener('pointermove', move);
+      dual.addEventListener('pointerup', up, { once: true });
+      dual.addEventListener('pointercancel', up, { once: true });
+    });
+  }
+  wireDual($('time-dual'));
+  const hDual = $('time-dual-h'); if (hDual) wireDual(hDual);
   // off (default) = keep the all-time layout, only sizes/visibility track the range;
   // on = re-rank positions by activity inside the range
   $('s-redist').onchange = () => { if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute($('s-redist').checked); };

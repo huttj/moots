@@ -360,6 +360,13 @@
             <option value="log">log</option>
           </select>
         </label>
+        <span>time</span>
+        <div class="dual" id="time-dual-h" style="width:170px;margin-top:0;flex:none">
+          <div class="dual-track"></div>
+          <div class="dual-fill" id="time-fill-h"></div>
+          <input type="range" id="th-min" min="0" max="1000" step="1" value="0">
+          <input type="range" id="th-max" min="0" max="1000" step="1" value="1000">
+        </div>
       </div>
     </div>
     <div class="hist-key">
@@ -595,15 +602,34 @@ document.getElementById('histmuted').textContent =
 function renderHist(){
   const n = +document.getElementById('histN').value;
   const mode = document.getElementById('histScale').value;
-  const scale = mode==='log' ? d3.scaleLog().domain([1,maxTotal]).range([0,100])
-            : mode==='sqrt'  ? d3.scaleSqrt().domain([0,maxTotal]).range([0,100])
-            :                  d3.scaleLinear().domain([0,maxTotal]).range([0,100]);
-  const list = people.slice(0,n);
+  // window-scoped when the time scrubber is narrowed: rank by activity inside the range
+  const winOn = winScale!=null;
+  let list;
+  if(winOn){
+    list = [];
+    for(const p of people){
+      const nd = nodeById.get(p.sn);
+      if(nd && nd.visTotal!=null){ if(nd.visTotal>0) list.push({p, t:nd.visTotal, m:nd.visMentions, r:nd.visReplies}); }
+      else list.push({p, t:p.total, m:p.mentions, r:p.replies});   // no bucket data (old shares): all-time
+    }
+    list.sort((x,y)=>y.t-x.t);
+  } else {
+    list = people.map(p=>({p, t:p.total, m:p.mentions, r:p.replies}));
+  }
+  const mx = list.length ? list[0].t : 1;
+  document.getElementById('histmuted').textContent = winOn
+    ? `${list.length.toLocaleString()} people active ${fmtMonth(new Date(FILT_A))} – ${fmtMonth(new Date(FILT_B))}, ranked by mentions + replies in that range.`
+    : `${DATA.totalPeople.toLocaleString()} people, ranked by mentions + replies. #1 is @${people[0].sn} with ${maxTotal.toLocaleString()}.`;
+  const scale = mode==='log' ? d3.scaleLog().domain([1,mx]).range([0,100])
+            : mode==='sqrt'  ? d3.scaleSqrt().domain([0,mx]).range([0,100])
+            :                  d3.scaleLinear().domain([0,mx]).range([0,100]);
+  list = list.slice(0,n);
   rowsEl.innerHTML='';
   const frag = document.createDocumentFragment();
-  list.forEach((p,i)=>{
+  list.forEach((it,i)=>{
+    const p = it.p;
     const row=document.createElement('div'); row.className='row';
-    const w = Math.max(1.2, scale(Math.max(1,p.total)));
+    const w = Math.max(1.2, scale(Math.max(1,it.t)));
     const col = recencyColor(p);
     row.innerHTML = `
       <div class="rank">${i+1}</div>
@@ -613,7 +639,7 @@ function renderHist(){
         <div class="bar" style="width:${w}%;background:linear-gradient(90deg,${d3.color(col).darker(0.6)},${col})"></div>
         <div class="blabel">${escapeHtml(p.name||p.sn)} <span class="h">@${p.sn}</span></div>
       </div>
-      <div class="cnt">${p.total.toLocaleString()}<small>${p.mentions}m · ${p.replies}r</small></div>`;
+      <div class="cnt">${it.t.toLocaleString()}<small>${it.m}m · ${it.r}r</small></div>`;
     row.onclick=()=>{ focusPerson(p.sn); };
     frag.appendChild(row);
   });
@@ -1453,6 +1479,7 @@ function setTimeFilter(a,b){
       if(REDISTRIBUTE) applyLayoutSmooth();
       else { refreshForces(); sim.alpha(0.12).restart(); }
       if(primarySel){ const n=nodeById.get(primarySel); if(n) showInfo(n); }
+      if(document.getElementById('histogram').classList.contains('active')) renderHist();
     }, 300);
   }
   glLinksDirty=true;                                  // cached arched links must drop edges to hidden nodes
