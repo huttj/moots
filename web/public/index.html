@@ -218,9 +218,9 @@
   /* dual-ended range (time scrubber) */
   .dual{position:relative;height:26px;margin-top:6px;touch-action:none;cursor:pointer}
   .dual-track{position:absolute;top:11px;left:0;right:0;height:4px;border-radius:2px;background:#2a2a3e}
-  .dual-fill{position:absolute;top:11px;height:4px;border-radius:2px;background:var(--accent)}
+  .dual-fill{position:absolute;top:11px;height:4px;border-radius:2px;background:var(--accent);z-index:1;outline:none}
   .dual input[type=range]{position:absolute;top:0;left:0;width:100%;height:26px;margin:0;background:none;
-    pointer-events:none;-webkit-appearance:none;appearance:none}
+    pointer-events:none;-webkit-appearance:none;appearance:none;z-index:2;outline:none}
   .dual input[type=range]::-webkit-slider-thumb{pointer-events:none;-webkit-appearance:none;appearance:none;
     width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid #1a1400;cursor:pointer}
   .dual input[type=range]::-moz-range-thumb{pointer-events:none;width:15px;height:15px;border-radius:50%;
@@ -391,8 +391,8 @@
         <span>time</span>
         <div class="dual" id="time-dual-h" style="width:170px;margin-top:0;flex:none">
           <div class="dual-track"></div>
-          <div class="dual-fill" id="time-fill-h"></div>
           <input type="range" id="th-min" min="0" max="1000" step="1" value="0">
+          <div class="dual-fill" id="time-fill-h" tabindex="0" title="time window — ←/→ slides it"></div>
           <input type="range" id="th-max" min="0" max="1000" step="1" value="1000">
         </div>
       </div>
@@ -504,8 +504,8 @@
     <label>Time range <span id="v-time">all time</span></label>
     <div class="dual" id="time-dual">
       <div class="dual-track"></div>
-      <div class="dual-fill" id="time-fill"></div>
       <input type="range" id="t-min" min="0" max="1000" step="1" value="0">
+      <div class="dual-fill" id="time-fill" tabindex="0" title="time window — ←/→ slides it"></div>
       <input type="range" id="t-max" min="0" max="1000" step="1" value="1000">
     </div>
   </div>

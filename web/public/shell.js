@@ -429,6 +429,10 @@
       else if (inside) mode = 'pan';
       else mode = v0 < a0 ? 'a' : 'b';
       setSelPart(mode === 'pan' ? 'win' : mode);   // highlight what was grabbed; arrows nudge it
+      const fEl = mode === 'pan' ? dual.querySelector('.dual-fill')
+                : mode === 'a' ? dual.querySelector('input[type=range]')
+                : dual.querySelectorAll('input[type=range]')[1];
+      if (fEl) fEl.focus({ preventScroll: true });   // so Tab continues from what you grabbed
       const move = ev => {
         const nv = val(ev);
         if (mode === 'pan') {
@@ -441,7 +445,16 @@
       dual.setPointerCapture(e.pointerId);
       if (mode !== 'pan') move(e);   // handles jump to the pointer; panning starts in place
       dual.addEventListener('pointermove', move);
-      const up = () => dual.removeEventListener('pointermove', move);
+      const up = () => {
+        dual.removeEventListener('pointermove', move);
+        // dropped one handle exactly onto the other: switch to whole-window selection,
+        // so arrowing now slides the stacked pair instead of re-separating it
+        if (mode !== 'pan' && +tMinEl.value === +tMaxEl.value) {
+          setSelPart('win');
+          const f = dual.querySelector('.dual-fill');
+          if (f) f.focus({ preventScroll: true });
+        }
+      };
       dual.addEventListener('pointerup', up, { once: true });
       dual.addEventListener('pointercancel', up, { once: true });
     });
@@ -467,18 +480,29 @@
     tMinEl.value = a; tMaxEl.value = b; applyTime();
   }
   document.addEventListener('keydown', e => {
-    if (!selPart || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (!selPart) return;
+    const inDual = e.target.closest && e.target.closest('.dual');
+    if (!inDual && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      e.preventDefault();
+      e.preventDefault();   // also suppresses the range input's native ±1 stepping
       // the filter buckets by month, so that's the meaningful step: arrows move one
       // month, Shift+arrows one year (in slider units of the archive's actual span)
       const bn = window.__moots && window.__moots.timeBounds;
       const months = bn ? Math.max(1, (bn.max - bn.min) / (30.44 * 86400e3)) : 120;
       const unit = Math.max(1, Math.round(1000 / months));
       nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? unit * 12 : unit));
-    } else if (e.key === 'Escape') setSelPart(null);
+    } else if (e.key === 'Escape') { setSelPart(null); if (e.target.blur) e.target.blur(); }
   });
   document.addEventListener('click', e => { if (!e.target.closest('.dual')) setSelPart(null); });
+  // tab order per slider: min dot -> window bar -> max dot (the fill sits between the
+  // inputs in the DOM); focusing any of them selects it for arrow-key nudging
+  for (const [el, part] of [[tMinEl, 'a'], [tFill, 'win'], [tMaxEl, 'b'], [hMinEl, 'a'], [hFill, 'win'], [hMaxEl, 'b']]) {
+    if (!el) continue;
+    el.addEventListener('focus', () => setSelPart(part));
+    el.addEventListener('blur', e => {
+      if (!(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.dual'))) setSelPart(null);
+    });
+  }
   // off (default) = keep the all-time layout, only sizes/visibility track the range;
   // on = re-rank positions by activity inside the range
   $('s-redist').onchange = () => { if (window.__moots && window.__moots.setRedistribute) window.__moots.setRedistribute($('s-redist').checked); };
