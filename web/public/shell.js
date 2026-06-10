@@ -379,13 +379,18 @@
   const tMinEl = $('t-min'), tMaxEl = $('t-max'), tFill = $('time-fill');
   const hMinEl = $('th-min'), hMaxEl = $('th-max'), hFill = $('time-fill-h');
   const fmtMs = ms => new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  // fill bar drawn in the same inset coordinate space the thumbs travel ([tw/2, 100%-tw/2]),
+  // otherwise it pokes out past the dots at the track's extremes
+  function fillCss(f, a, b) {
+    f.style.left = 'calc(7.5px + (100% - 15px) * ' + (a / 1000) + ')';
+    f.style.width = 'calc((100% - 15px) * ' + (Math.max(0, b - a) / 1000) + ')';
+  }
   function applyTime() {
     let a = +tMinEl.value, b = +tMaxEl.value;
-    tFill.style.left = (a / 10) + '%';
-    tFill.style.width = Math.max(0, (b - a) / 10) + '%';
+    fillCss(tFill, a, b);
     if (hMinEl) {
       hMinEl.value = a; hMaxEl.value = b;
-      hFill.style.left = (a / 10) + '%'; hFill.style.width = Math.max(0, (b - a) / 10) + '%';
+      fillCss(hFill, a, b);
     }
     const bn = window.__moots && window.__moots.timeBounds;
     if (!bn) return;
