@@ -287,8 +287,11 @@
     dual.addEventListener('pointerdown', e => {
       e.preventDefault();
       const r = dual.getBoundingClientRect();
-      const val = ev => Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * 1000);
-      const xOf = v => r.left + (v / 1000) * r.width;
+      // native range thumbs don't span the full track: the 15px thumb's CENTER travels
+      // [left+7.5, right-7.5]. Use that mapping both ways or hitboxes skew off the visuals.
+      const TW = 15;
+      const val = ev => Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left - TW / 2) / (r.width - TW))) * 1000);
+      const xOf = v => r.left + TW / 2 + (v / 1000) * (r.width - TW);
       const v0 = val(e), a0 = +tMinEl.value, b0 = +tMaxEl.value;
       const GRAB = 8;    // px: how close to a thumb counts as grabbing it (~the thumb itself)
       const nearA = Math.abs(e.clientX - xOf(a0)) <= GRAB, nearB = Math.abs(e.clientX - xOf(b0)) <= GRAB;
