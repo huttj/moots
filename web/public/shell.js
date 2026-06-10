@@ -464,7 +464,12 @@
     if (!selPart || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
-      nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 20 : 2));
+      // the filter buckets by month, so that's the meaningful step: arrows move one
+      // month, Shift+arrows one year (in slider units of the archive's actual span)
+      const bn = window.__moots && window.__moots.timeBounds;
+      const months = bn ? Math.max(1, (bn.max - bn.min) / (30.44 * 86400e3)) : 120;
+      const unit = Math.max(1, Math.round(1000 / months));
+      nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? unit * 12 : unit));
     } else if (e.key === 'Escape') setSelPart(null);
   });
   document.addEventListener('click', e => { if (!e.target.closest('.dual')) setSelPart(null); });
