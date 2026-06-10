@@ -32,21 +32,37 @@ async function resolveAvatarUrl(handle) {
   } catch (_) {}
   return null;
 }
-async function pfp(url, ctx) {
+async function pfp(url, ctx, env) {
   const h = url.searchParams.get('u') || '';
   if (!HANDLE.test(h)) return new Response('bad handle', { status: 400, headers: CORS });
-  const cache = caches.default, key = new Request('https://moots.cache/pfp/' + h);
-  const hit = await cache.match(key); if (hit) return hit;
+  const r2key = h.toLowerCase() + '.jpg';
 
-  let imgUrl = await resolveAvatarUrl(h);
-  let img = imgUrl ? await fetch(imgUrl, { headers: { 'User-Agent': UA } }) : null;
-  if (img && !img.ok && imgUrl.includes('_400x400.')) img = await fetch(imgUrl.replace('_400x400.', '_normal.'), { headers: { 'User-Agent': UA } });
-  if (!img || !img.ok) img = await fetch('https://unavatar.io/twitter/' + h + '?fallback=false', { headers: { 'User-Agent': UA } });
-  if (!img || !img.ok) return new Response('not found', { status: 404, headers: CORS });
-
-  const out = new Response(img.body, { headers: { ...CORS, 'Content-Type': img.headers.get('content-type') || 'image/jpeg', 'Cache-Control': `public, max-age=${IMG_TTL}, immutable` } });
-  ctx.waitUntil(cache.put(key, out.clone()));
-  return out;
+  // 1) R2 — the durable cache. Once populated, img.moots.fyi serves future loads
+  //    WITHOUT invoking this Worker; here it just saves a re-scrape on a cold edge.
+  if (env.AVATARS) {
+    const obj = await env.AVATARS.get(r2key);
+    if (obj) return new Response(obj.body, { headers: { ...CORS, 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': `public, max-age=${IMG_TTL}, immutable` } });
+  }
+  // 2) image bytes: reuse the edge-cached copy (avoids re-scraping pbs) or resolve fresh
+  const cache = caches.default, ckey = new Request('https://moots.cache/pfp/' + h);
+  let buf, ct;
+  const hit = await cache.match(ckey);
+  if (hit) {
+    ct = hit.headers.get('content-type') || 'image/jpeg';
+    buf = await hit.arrayBuffer();
+  } else {
+    let imgUrl = await resolveAvatarUrl(h);
+    let img = imgUrl ? await fetch(imgUrl, { headers: { 'User-Agent': UA } }) : null;
+    if (img && !img.ok && imgUrl.includes('_400x400.')) img = await fetch(imgUrl.replace('_400x400.', '_normal.'), { headers: { 'User-Agent': UA } });
+    if (!img || !img.ok) img = await fetch('https://unavatar.io/twitter/' + h + '?fallback=false', { headers: { 'User-Agent': UA } });
+    if (!img || !img.ok) return new Response('not found', { status: 404, headers: CORS });
+    ct = img.headers.get('content-type') || 'image/jpeg';
+    buf = await img.arrayBuffer();
+    ctx.waitUntil(cache.put(ckey, new Response(buf, { headers: { ...CORS, 'Content-Type': ct, 'Cache-Control': `public, max-age=${IMG_TTL}, immutable` } })));
+  }
+  // 3) ALWAYS populate R2 — this is what lets the CDN (r2.dev / img.moots.fyi) serve it Worker-free
+  if (env.AVATARS) ctx.waitUntil(env.AVATARS.put(r2key, buf, { httpMetadata: { contentType: ct, cacheControl: `public, max-age=${IMG_TTL}, immutable` } }));
+  return new Response(buf, { headers: { ...CORS, 'Content-Type': ct, 'Cache-Control': `public, max-age=${IMG_TTL}, immutable` } });
 }
 async function banner(url, ctx) {
   const h = url.searchParams.get('u') || '';
@@ -155,7 +171,7 @@ export default {
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url), p = url.pathname;
-    if (p === '/pfp') return pfp(url, ctx);
+    if (p === '/pfp') return pfp(url, ctx, env);
     if (p === '/banner') return banner(url, ctx);
     if (p === '/health') return new Response('ok', { headers: CORS });
     if (p === '/share' && req.method === 'POST') return share(req, env);

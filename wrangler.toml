@@ -20,3 +20,10 @@ binding = "ASSETS"
 [[kv_namespaces]]
 binding = "SHARES"
 id = "ec8ce1f8f5084095a73fda0e0bbc4fa5"
+
+# R2 caches resolved profile pictures so repeat loads can be served from a CDN
+# (img.moots.fyi) WITHOUT invoking this Worker. Create with:
+#   npx wrangler r2 bucket create moots-avatars
+[[r2_buckets]]
+binding = "AVATARS"
+bucket_name = "moots-avatars"
