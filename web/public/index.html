@@ -1220,7 +1220,8 @@ canvas.addEventListener('mousemove',(ev)=>{
     tip.style.display='block';
     tip.style.left=(ev.clientX+14)+'px';
     tip.style.top=(ev.clientY+14)+'px';
-    tip.innerHTML=`<b>@${n.sn}</b> · ${n.total.toLocaleString()} interactions`;
+    const tipTotal = (winScale && n.visTotal!=null) ? n.visTotal : n.total;   // window-scoped while scrubber is narrowed, like the info panel
+    tip.innerHTML=`<b>@${n.sn}</b> · ${tipTotal.toLocaleString()} interactions`;
     canvas.style.cursor='pointer';
   } else { tip.style.display='none'; canvas.style.cursor='grab'; }
 });
