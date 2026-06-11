@@ -101,13 +101,30 @@ function sanitize(d) {
   return { self: d.self ? String(d.self).slice(0, 20) : null, selfName: String(d.selfName || '').slice(0, 80),
     totalTweets: +d.totalTweets | 0, totalPeople: +d.totalPeople | 0, people, links };
 }
+// display settings stored with a share (whitelist + clamp; anything bad -> null = viewer gets defaults)
+function sanitizeSettings(raw) {
+  if (typeof raw !== 'string' || !raw || raw.length > 2000) return null;
+  let s; try { s = JSON.parse(raw); } catch (_) { return null; }
+  if (!s || typeof s !== 'object') return null;
+  const ranges = { size: [0.4, 10], spread: [0.5, 5], pack: [-1.5, 1.5], contrast: [0, 2.5], age: [0, 2], label: [4, 24], t0: [0, 1000], t1: [0, 1000] };
+  const out = {};
+  for (const k in ranges) {
+    const v = +s[k];
+    if (Number.isFinite(v)) out[k] = Math.min(ranges[k][1], Math.max(ranges[k][0], v));
+  }
+  if (out.t0 != null && out.t1 != null && out.t0 > out.t1) { const t = out.t0; out.t0 = out.t1; out.t1 = t; }
+  if (s.layout === 'spread' || s.layout === 'community') out.layout = s.layout;
+  if (typeof s.redist === 'boolean') out.redist = s.redist;
+  if (typeof s.rings === 'boolean') out.rings = s.rings;
+  return Object.keys(out).length ? out : null;
+}
 async function sha256hex(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
 }
 // Storage layout (lets the same person re-share many views without duplicating the data):
 //   data:<contentHash>  -> the aggregated tally, stored ONCE per unique dataset
-//   share:<id>          -> { d:<hash>, self, n, t }  (one small record per shared URL)
+//   share:<id>          -> { d:<hash>, self, n, t, s? }  (one small record per shared URL; s = display settings)
 //   img:<id>            -> the preview PNG (unique per URL)
 async function share(req, env) {
   if (!env.SHARES) return json({ error: 'sharing not configured' }, 501);
@@ -123,6 +140,8 @@ async function share(req, env) {
 
   const id = genId();
   const rec = { d: dataHash, self: clean.self, n: clean.totalPeople, t: Date.now() };
+  const settings = sanitizeSettings(form.get('settings'));
+  if (settings) rec.s = settings;
   await env.SHARES.put('share:' + id, JSON.stringify(rec), { metadata: { self: clean.self, n: clean.totalPeople, t: rec.t } });
   const image = form.get('image');
   if (image && image.size && image.size < 5_000_000) await env.SHARES.put('img:' + id, await image.arrayBuffer());
@@ -166,11 +185,14 @@ async function viewShare(req, env, id, sub, ctx) {
   <meta name="twitter:title" content="${esc(title)}">
   <meta name="twitter:description" content="${esc(desc)}">
   <meta name="twitter:image" content="${ogImg}">`;
+  // sharer's display settings ride along so the link reopens the same view
+  // (rec.s passed sanitizeSettings: only whitelisted numbers/booleans/enums, so safe to inline)
+  const settingsTag = rec.s ? `\n  <script>window.__MOOTS_SETTINGS=${JSON.stringify(rec.s).replace(/</g, '\\u003c')}</script>` : '';
   const res = await env.ASSETS.fetch(new URL('/index.html', req.url));
   let html = await res.text();
   // drop the static description/OG/twitter metas so the dynamic ones don't duplicate
   html = html.replace(/<meta\s+(?:name|property)="(?:description|og:[^"]*|twitter:[^"]*)"[^>]*>\s*/gi, '');
-  html = html.replace('</head>', tags + '</head>');
+  html = html.replace('</head>', tags + settingsTag + '</head>');
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 }
 

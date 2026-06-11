@@ -1750,12 +1750,32 @@ function applyDefaults(){
   else { SIZE_MUL=sz; RADIUS_POW=0.5*Math.pow(2,-0.4); applyLayout(); }
 }
 
+// a shared permalink carries the sharer's display settings (the Worker injects __MOOTS_SETTINGS
+// into /v/:id). Write them into the controls: the slider DOM values are canonical, so this is
+// order-safe with the shell — if it's wired, the dispatched events apply immediately; if not,
+// its initial pushSettings()/applyTime() pick the values up.
+function applySharedSettings(){
+  const s=window.__MOOTS_SETTINGS; if(!s) return;
+  const set=(id,v)=>{ if(v==null) return; const e=document.getElementById(id); if(e){ e.value=v; e.dispatchEvent(new Event('input')); } };
+  set('s-size',s.size); set('s-spread',s.spread); set('s-pack',s.pack);
+  set('s-contrast',s.contrast); set('s-age',s.age); set('s-label',s.label);
+  set('t-min',s.t0); set('t-max',s.t1);
+  // checkboxes + layout call the setters directly — the shell wires their handlers but never invokes them on load
+  const chk=(id,v,fn)=>{ if(typeof v!=='boolean') return; const e=document.getElementById(id); if(e) e.checked=v; fn(v); };
+  chk('s-redist',s.redist,setRedistribute); chk('s-rings',s.rings,setOutlines);
+  if(s.layout==='spread'||s.layout==='community'){
+    document.querySelectorAll('#seg-layout button').forEach(b=>b.classList.toggle('on', b.dataset.mode===s.layout));
+    if(s.layout==='community') setTimeout(()=>setLayoutMode('community'), 200);   // same settle delay as ?layout=
+  }
+}
+
 // expose hooks for the shell
 window.__moots = { selectPerson, setSettings, setLayoutMode, setGL, setTimeFilter, setRedistribute, setOutlines, timeBounds:{min:tFirstMin,max:tMax}, glOn:GL, exportPNG, applyDefaults, data:DATA, redraw:scheduleDraw,
   zoomTo:(k)=>d3.select(canvas).transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(k)) };
 
 // initial render
 applyDefaults();          // size the dots for this archive before the first layout settles (then fitView frames it)
+applySharedSettings();    // …then a shared link's stored settings override those defaults
 renderHist();
 scheduleDraw();
 if(new URLSearchParams(location.search).get('layout')==='community') setTimeout(()=>setLayoutMode('community'), 200);

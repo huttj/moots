@@ -50,6 +50,19 @@
   $('p-recap').onclick = capturePreview;
   $('p-curview').onchange = capturePreview;          // toggle whole-map vs current view -> re-capture
 
+  // snapshot of the display settings, stored with the share so the link reopens the same view
+  // (GL options stay local — avatar res / AA are about the viewer's device, not the view)
+  function currentSettings() {
+    const segBtn = document.querySelector('#seg-layout button.on');
+    return {
+      size: +$('s-size').value, spread: +$('s-spread').value, pack: +$('s-pack').value,
+      contrast: +$('s-contrast').value, age: +$('s-age').value, label: +$('s-label').value,
+      t0: +$('t-min').value, t1: +$('t-max').value,
+      layout: segBtn ? segBtn.dataset.mode : 'spread',
+      redist: $('s-redist').checked, rings: $('s-rings').checked,
+    };
+  }
+
   // publish the CURRENTLY-previewed image (so the link matches what they see)
   async function ensurePublished() {
     if (publishedLink) return publishedLink;
@@ -60,6 +73,7 @@
       const png = currentBlob || await window.__moots.exportPNG(2, 'image/jpeg', 0.9, ($('p-curview') && $('p-curview').checked) ? undefined : 'graph');
       const fd = new FormData();
       fd.append('data', new Blob([JSON.stringify(window.__moots.data)], { type: 'application/json' }));
+      fd.append('settings', JSON.stringify(currentSettings()));
       if (png) fd.append('image', png, 'og.jpg');
       const r = await fetch('/share', { method: 'POST', body: fd });
       if (!r.ok) throw new Error('HTTP ' + r.status);
