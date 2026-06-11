@@ -492,7 +492,16 @@
     tMinEl.value = a; tMaxEl.value = b; applyTime();
   }
   document.addEventListener('keydown', e => {
-    if (!selPart) return;
+    const arrow = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+    if (!selPart) {
+      // settings panel open with nothing in it focused: the first ←/→ press
+      // grabs the time window so arrows work without clicking the slider first
+      if (!arrow || !settings.classList.contains('show')) return;
+      const ae = document.activeElement;
+      if (ae && ae !== document.body && (settings.contains(ae) || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) return;
+      setSelPart('win');
+      if (tFill) tFill.focus({ preventScroll: true });
+    }
     const inDual = e.target.closest && e.target.closest('.dual');
     if (!inDual && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
