@@ -123,6 +123,26 @@ async function sha256hex(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
 }
+// shares are stored gzipped (the dataset is mostly repeated JSON keys; gzip ~10x's it)
+const isGzip = (u8) => u8.length > 1 && u8[0] === 0x1f && u8[1] === 0x8b;
+async function gzip(str) {
+  const stream = new Response(str).body.pipeThrough(new CompressionStream('gzip'));
+  return await new Response(stream).arrayBuffer();
+}
+async function gunzip(buf, maxBytes) {   // capped read so a gzip bomb can't blow up memory
+  const reader = new Response(buf).body.pipeThrough(new DecompressionStream('gzip')).getReader();
+  const chunks = []; let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > maxBytes) { await reader.cancel(); throw new Error('too large'); }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size); let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return new TextDecoder().decode(out);
+}
 // Storage layout (lets the same person re-share many views without duplicating the data):
 //   data:<contentHash>  -> the aggregated tally, stored ONCE per unique dataset
 //   share:<id>          -> { d:<hash>, self, n, t, s? }  (one small record per shared URL; s = display settings)
@@ -131,13 +151,16 @@ async function share(req, env) {
   if (!env.SHARES) return json({ error: 'sharing not configured' }, 501);
   let form; try { form = await req.formData(); } catch (_) { return json({ error: 'bad form' }, 400); }
   const dataBlob = form.get('data'); if (!dataBlob) return json({ error: 'no data' }, 400);
-  const text = await dataBlob.text();
+  const raw = new Uint8Array(await dataBlob.arrayBuffer());
+  let text;
+  try { text = isGzip(raw) ? await gunzip(raw, 24_000_000) : new TextDecoder().decode(raw); }   // accept gzipped or plain
+  catch (_) { return json({ error: 'too large' }, 413); }
   if (text.length > 24_000_000) return json({ error: 'too large' }, 413);   // KV value limit is 25 MiB; leave margin
   let clean; try { clean = sanitize(JSON.parse(text)); } catch (_) { return json({ error: 'bad data' }, 400); }
 
   const cleanStr = JSON.stringify(clean);
   const dataHash = await sha256hex(cleanStr);
-  if (!(await env.SHARES.get('data:' + dataHash))) await env.SHARES.put('data:' + dataHash, cleanStr);   // dedup
+  if (!(await env.SHARES.get('data:' + dataHash, 'arrayBuffer'))) await env.SHARES.put('data:' + dataHash, await gzip(cleanStr));   // dedup, stored gzipped
 
   const id = genId();
   const rec = { d: dataHash, self: clean.self, n: clean.totalPeople, t: Date.now() };
@@ -162,9 +185,11 @@ async function viewShare(req, env, id, sub, ctx) {
   if (!rec) return new Response('not found', { status: 404, headers: CORS });
 
   if (sub === '/data') {
-    const d = await env.SHARES.get('data:' + rec.d);
+    const d = await env.SHARES.get('data:' + rec.d, 'arrayBuffer');
     if (!d) return json({ error: 'not found' }, 404);
-    return new Response(d, { headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' } });
+    const h = { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' };
+    if (isGzip(new Uint8Array(d))) h['Content-Encoding'] = 'gzip';   // new shares stored gzipped; old ones are plain JSON
+    return new Response(d, { headers: h });
   }
 
   // base /v/:id -> serve the app HTML with OG meta injected

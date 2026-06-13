@@ -72,7 +72,13 @@
     try {
       const png = currentBlob || await window.__moots.exportPNG(2, 'image/jpeg', 0.9, ($('p-curview') && $('p-curview').checked) ? undefined : 'graph');
       const fd = new FormData();
-      fd.append('data', new Blob([JSON.stringify(window.__moots.data)], { type: 'application/json' }));
+      // gzip the dataset before upload (mostly repeated JSON keys -> ~10x smaller, fast even on mobile);
+      // worker sniffs the gzip magic bytes, so a plain blob still works on browsers without CompressionStream
+      const dataJson = JSON.stringify(window.__moots.data);
+      const dataPart = typeof CompressionStream !== 'undefined'
+        ? await new Response(new Blob([dataJson]).stream().pipeThrough(new CompressionStream('gzip'))).blob()
+        : new Blob([dataJson], { type: 'application/json' });
+      fd.append('data', dataPart, 'data.json.gz');
       fd.append('settings', JSON.stringify(currentSettings()));
       if (png) fd.append('image', png, 'og.jpg');
       const r = await fetch('/share', { method: 'POST', body: fd });
