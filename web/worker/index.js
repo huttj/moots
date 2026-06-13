@@ -187,9 +187,11 @@ async function viewShare(req, env, id, sub, ctx) {
   if (sub === '/data') {
     const d = await env.SHARES.get('data:' + rec.d, 'arrayBuffer');
     if (!d) return json({ error: 'not found' }, 404);
-    const h = { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' };
-    if (isGzip(new Uint8Array(d))) h['Content-Encoding'] = 'gzip';   // new shares stored gzipped; old ones are plain JSON
-    return new Response(d, { headers: h });
+    // stored gzipped (new) or plain JSON (old) -> always hand back plain JSON and let Cloudflare
+    // re-compress on the wire; returning a pre-gzipped body makes CF double-encode it.
+    const u8 = new Uint8Array(d);
+    const text = isGzip(u8) ? await gunzip(u8, 30_000_000) : new TextDecoder().decode(u8);
+    return new Response(text, { headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' } });
   }
 
   // base /v/:id -> serve the app HTML with OG meta injected
