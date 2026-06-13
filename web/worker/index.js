@@ -91,13 +91,14 @@ async function banner(url, ctx) {
 // keep only the fields the viz renders (never raw tweet text)
 function sanitize(d) {
   if (!d || !Array.isArray(d.people)) throw new Error('bad');
-  const people = d.people.slice(0, 6000).map(p => ({
+  const people = d.people.map(p => ({
     sn: String(p.sn || '').slice(0, 20), name: String(p.name || '').slice(0, 80), id: String(p.id || '').slice(0, 25),
     mentions: +p.mentions | 0, replies: +p.replies | 0, total: +p.total | 0,
     first: p.first ? String(p.first).slice(0, 30) : null, last: p.last ? String(p.last).slice(0, 30) : null,
     peakYear: p.peakYear ? +p.peakYear : null,
+    tl: Array.isArray(p.tl) ? p.tl.slice(0, 4000).map(x => +x | 0) : null,   // monthly buckets so the scrubber works on shares
   }));
-  const links = (Array.isArray(d.links) ? d.links : []).slice(0, 20000).map(l => ({ s: String(l.s).slice(0, 20), t: String(l.t).slice(0, 20), w: +l.w | 0 }));
+  const links = (Array.isArray(d.links) ? d.links : []).map(l => ({ s: String(l.s).slice(0, 20), t: String(l.t).slice(0, 20), w: +l.w | 0 }));
   return { self: d.self ? String(d.self).slice(0, 20) : null, selfName: String(d.selfName || '').slice(0, 80),
     totalTweets: +d.totalTweets | 0, totalPeople: +d.totalPeople | 0, people, links };
 }
@@ -131,7 +132,7 @@ async function share(req, env) {
   let form; try { form = await req.formData(); } catch (_) { return json({ error: 'bad form' }, 400); }
   const dataBlob = form.get('data'); if (!dataBlob) return json({ error: 'no data' }, 400);
   const text = await dataBlob.text();
-  if (text.length > 6_000_000) return json({ error: 'too large' }, 413);
+  if (text.length > 24_000_000) return json({ error: 'too large' }, 413);   // KV value limit is 25 MiB; leave margin
   let clean; try { clean = sanitize(JSON.parse(text)); } catch (_) { return json({ error: 'bad data' }, 400); }
 
   const cleanStr = JSON.stringify(clean);
