@@ -349,7 +349,33 @@
 
   /* ---------------- settings ---------------- */
   const settings = $('settings');
-  $('btn-settings').onclick = () => settings.classList.toggle('show');
+
+  // one-time hint under the gear: "customize the graph / explore the timeline".
+  // Anchored to the button via JS (header contents shift across breakpoints); caret sits 29px from the popover's right edge.
+  const hint = $('settings-hint');
+  const hideHint = () => {
+    if (!hint.classList.contains('show')) return;
+    hint.classList.remove('show');
+    try { localStorage.setItem('moots_hint_settings', '1'); } catch (_) {}
+  };
+  let hintSeen = false;
+  try { hintSeen = !!localStorage.getItem('moots_hint_settings'); } catch (_) {}
+  if (!hintSeen) {
+    const placeHint = () => {
+      const r = $('btn-settings').getBoundingClientRect();
+      hint.style.right = Math.max(8, innerWidth - (r.left + r.width / 2) - 29) + 'px';
+      hint.style.top = (r.bottom + 10) + 'px';
+    };
+    setTimeout(() => {
+      if (settings.classList.contains('show')) return;   // they already found it
+      placeHint(); hint.classList.add('show');
+    }, 1200);
+    addEventListener('resize', () => { if (hint.classList.contains('show')) placeHint(); });
+    setTimeout(hideHint, 25000);                         // don't linger forever
+  }
+  $('settings-hint-x').onclick = hideHint;
+
+  $('btn-settings').onclick = () => { hideHint(); settings.classList.toggle('show'); };
 
   // mobile: search lives behind a button and expands as a row under the header
   const searchWrap = document.querySelector('header .search');

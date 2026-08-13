@@ -246,6 +246,19 @@
   .settings .reset{background:#1c1c2c;border:1px solid var(--line);color:var(--dim);border-radius:8px;
     padding:6px 10px;font-size:12px;cursor:pointer;width:100%}
 
+  /* ---- one-time hint pointing at the settings gear ---- */
+  .hint{position:fixed;z-index:25;background:rgba(18,18,30,.95);border:1px solid var(--line);
+    border-radius:11px;padding:9px 28px 9px 12px;font-size:12.5px;color:#c9c9da;max-width:236px;line-height:1.5;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(8px);display:none}
+  .hint.show{display:block;animation:hintin .35s ease}
+  .hint::before{content:'';position:absolute;top:-5.5px;right:24px;width:10px;height:10px;transform:rotate(45deg);
+    background:rgb(20,20,32);border-left:1px solid var(--line);border-top:1px solid var(--line)}
+  .hint b{color:var(--ink)}
+  .hint .hx{position:absolute;top:3px;right:4px;background:none;border:0;color:var(--dim);cursor:pointer;
+    font-size:12px;padding:3px 5px;line-height:1}
+  .hint .hx:hover{color:var(--ink)}
+  @keyframes hintin{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+
   /* ---- busy overlay (parsing) ---- */
   .busy{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;
     background:rgba(8,8,16,.9);color:var(--ink);font-size:15px;flex-direction:column;gap:10px}
@@ -300,7 +313,7 @@
 
   /* clean-screenshot mode: hide UI chrome */
   body.shot header,body.shot .legend,body.shot .cc,body.shot .info,body.shot .welcome,
-  body.shot .settings,body.shot .tip{display:none!important}
+  body.shot .settings,body.shot .tip,body.shot .hint{display:none!important}
   body.shot main{inset:0}
 </style>
 </head>
@@ -536,6 +549,12 @@
   </div>
   <button class="reset" id="s-shot-btn" style="margin-bottom:9px">📸 Clean screenshot mode · Esc to exit</button>
   <button class="reset" id="s-reset">Reset to defaults</button>
+</div>
+
+<!-- one-time hint pointing at the settings gear -->
+<div class="hint" id="settings-hint">
+  Click the <b>⚙</b> to customize the graph and explore the timeline.
+  <button class="hx" id="settings-hint-x" title="Dismiss">✕</button>
 </div>
 
 <!-- download / save-image menu -->
