@@ -25,9 +25,9 @@
   } catch (_) {}
   if (!on) return;
 
-  const box = $('ca-box'), sel = $('ca-sel'), go = $('ca-go'), note = $('ca-note');
+  const box = $('ca-box'), q = $('ca-q'), ac = $('ca-ac'), go = $('ca-go'), note = $('ca-note');
   const pill = $('ca-pill'), pillText = $('ca-pill-text'), pillBtn = $('ca-pause');
-  if (!box || !sel) return;
+  if (!box || !q) return;
   box.classList.remove('hide');
 
   /* ---- CA API with retry (their DB 500s after ~30 s on some pages; 429s under load) ---- */
@@ -53,28 +53,56 @@
     try { localStorage.setItem('moots_ca_accounts', JSON.stringify({ t: Date.now(), list })); } catch (_) {}
     return list;
   }
-  let LIST = [];
+  let LIST = [], picked = null, acIdx = 0, matches = [];
   const byName = u => LIST.find(a => a.username.toLowerCase() === String(u).toLowerCase());
+  const esc = t => String(t || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function fillSelect() {
-    try { LIST = await accounts(); } catch (e) { sel.innerHTML = '<option>couldn’t reach the Community Archive</option>'; return; }
+    try { LIST = await accounts(); } catch (e) { q.placeholder = 'couldn’t reach the Community Archive'; return; }
+    q.disabled = false; q.placeholder = `search ${LIST.length} archived accounts…`;
+    if (want && byName(want)) pick(byName(want));
+  }
+  // searchable picker: type to filter by handle / display name; ↑↓ + Enter, or click
+  function acMatch(s) {
+    s = s.trim().replace(/^@/, '').toLowerCase();
     let partial = null; try { partial = localStorage.getItem('moots_ca_partial'); } catch (_) {}
-    sel.innerHTML = '';
-    if (partial) { const o = document.createElement('option'); o.value = partial; o.textContent = `↻ resume @${partial}`; sel.appendChild(o); }
-    for (const a of LIST) {
-      const o = document.createElement('option'); o.value = a.username;
-      o.textContent = `@${a.username} · ${(+a.num_tweets || 0).toLocaleString()} tweets`;
-      sel.appendChild(o);
-    }
-    if (want && byName(want)) sel.value = byName(want).username;
-    updateNote();
+    const hit = a => !s || a.username.toLowerCase().includes(s) || (a.account_display_name || '').toLowerCase().includes(s);
+    const list = LIST.filter(hit).sort((x, y) => {   // prefix matches first, then by size
+      const px = x.username.toLowerCase().startsWith(s), py = y.username.toLowerCase().startsWith(s);
+      return px === py ? 0 : px ? -1 : 1;
+    });
+    if (partial && byName(partial) && hit(byName(partial))) { const p = byName(partial); list.splice(list.indexOf(p), 1); list.unshift(p); }
+    return list.slice(0, 12).map(a => ({ a, resume: a.username === partial }));
+  }
+  function renderAC() {
+    matches = acMatch(q.value); acIdx = 0;
+    ac.innerHTML = matches.map((m, i) => `<div class="ac-item${i === 0 ? ' active' : ''}" data-i="${i}">
+      <span class="nm">${m.resume ? '↻ resume ' : ''}<b>@${esc(m.a.username)}</b> <span style="color:var(--dim)">${esc(m.a.account_display_name || '')}</span></span>
+      <span class="ct">${(+m.a.num_tweets || 0).toLocaleString()} tweets</span></div>`).join('');
+    ac.classList.toggle('show', matches.length > 0);
+    ac.querySelectorAll('.ac-item').forEach(el => { el.onmousedown = e => e.preventDefault(); el.onclick = () => pick(matches[+el.dataset.i].a); });
+  }
+  function pick(a) {
+    picked = a; q.value = '@' + a.username; ac.classList.remove('show'); go.disabled = false; updateNote();
   }
   function updateNote() {
-    const a = byName(sel.value); if (!a) { note.textContent = ''; return; }
+    const a = picked; if (!a) { note.textContent = ''; return; }
     const pages = Math.ceil((+a.num_tweets || 0) / PAGE);
     const secs = Math.round(pages * 2.4 / PARTS);
     note.textContent = pages > 40 ? `~${pages} pages — about ${secs < 90 ? secs + ' s' : Math.round(secs / 60) + ' min'} if it isn’t cached yet; stars appear as it goes` : '';
   }
-  sel.onchange = updateNote;
+  q.oninput = () => { picked = null; go.disabled = true; note.textContent = ''; renderAC(); };
+  q.onfocus = renderAC;
+  q.onblur = () => setTimeout(() => ac.classList.remove('show'), 120);
+  q.onkeydown = e => {
+    if (!ac.classList.contains('show') && e.key !== 'Enter') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); acIdx = (acIdx + (e.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length;
+      ac.querySelectorAll('.ac-item').forEach((el, i) => el.classList.toggle('active', i === acIdx));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (picked) load(picked.username); else if (matches[acIdx]) { pick(matches[acIdx].a); load(picked.username); }
+    } else if (e.key === 'Escape') ac.classList.remove('show');
+  };
 
   /* ---- progress pill ---- */
   let paused = false, running = null;   // running = username in flight
@@ -101,6 +129,7 @@
     if (running && running !== username) { alert('already loading @' + running + ' — pause that first'); return; }
     paused = false; running = username;
     $('howmodal').classList.add('hide');
+    $('welcome').classList.add('hide');   // they've chosen a map; the pitch is done
     showPill(`@${username}: checking the Community Archive…`, '');
     try {
       const [archiveAt, meta] = await Promise.all([
@@ -207,6 +236,6 @@
     }
   }
 
-  go.onclick = () => { if (sel.value && byName(sel.value)) load(sel.value); };
+  go.onclick = () => { if (picked) load(picked.username); };
   fillSelect().then(() => { if (want && byName(want)) load(byName(want).username); });
 })();
