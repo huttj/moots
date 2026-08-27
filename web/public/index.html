@@ -189,6 +189,17 @@
   .upload-cta:hover{background:rgba(122,162,255,.15)}
   .upload-cta .u{color:var(--accent2);text-decoration:underline}
   .how-sub{margin:18px 0 8px;font-size:13.5px;color:var(--dim)}
+  .ca-box{margin-top:14px}
+  .ca-row{display:flex;gap:8px;align-items:center}
+  .ca-row select{flex:1;min-width:0;background:#1c1c2c;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;font-size:13px}
+  .ca-box .tiny{display:block;margin:8px 0 0;color:var(--dim);font-size:11.5px}
+  .capill{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);z-index:69;display:flex;gap:10px;align-items:center;
+    background:#14141fee;border:1px solid var(--line);border-radius:999px;padding:8px 14px 8px 12px;font-size:13px;color:var(--ink);
+    opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;box-shadow:0 6px 24px #0008}
+  .capill.show{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+  .capill .spin{width:12px;height:12px;border-width:2px;margin:0}
+  .capill.idle .spin{display:none}
+  .capill button{background:none;border:1px solid var(--line);color:var(--accent2);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer}
   .how-steps{margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;color:#c9c9da}
   .how-steps b{color:var(--ink)}
   .how-steps a{color:var(--accent2);text-decoration:none}
@@ -428,7 +439,6 @@
   <b>color = recency</b>. Drag to pan, scroll to zoom, click a star.</p>
   <div class="actions">
     <button class="hbtn primary" id="w-upload">↑ Drop your own archive</button>
-    <button class="hbtn" id="w-how">How to get it →</button>
     <button class="hbtn" id="w-dismiss">Explore this one</button>
     <span class="tiny">parsed in your browser — nothing is uploaded</span>
   </div>
@@ -467,6 +477,11 @@
       <li><b>Drop it here</b> — the whole <code>.zip</code>, the <code>tweets.js</code> inside it, or a Community Archive <code>.json</code>. Everything is parsed in your browser; nothing is uploaded.</li>
     </ol>
     <div class="how-ca">✦ Already in the <a href="https://www.community-archive.org/" target="_blank" rel="noopener">Community Archive</a>? Download your <code>archive.json</code> from there and drop it straight in.</div>
+    <div class="how-ca ca-box hide" id="ca-box">
+      <div class="how-sub" style="margin-top:0">✦ Or load someone straight from the Community Archive:</div>
+      <div class="ca-row"><select id="ca-sel"><option>loading…</option></select><button class="hbtn primary" id="ca-go">Load</button></div>
+      <div class="tiny" id="ca-note"></div>
+    </div>
   </div>
 </div>
 
@@ -568,6 +583,8 @@
 
 <!-- file input + busy -->
 <input type="file" id="file-input" accept=".js,.json,.zip" style="display:none">
+<!-- Community Archive streaming progress (ca.js) -->
+<div class="capill" id="ca-pill"><span class="spin"></span><span id="ca-pill-text"></span><button id="ca-pause">pause</button></div>
 <div class="busy" id="busy"><div class="spin"></div><div id="busy-text">reading your archive…</div></div>
 
 <script src="d3.min.js"></script>
@@ -584,7 +601,13 @@ let AV2 = null;   // fallback resolver (set for upload/shared: R2 miss -> /pfp, 
 let resolveBanner = sn => Promise.resolve(window.BANNERS&&window.BANNERS[sn] ? 'https://'+window.BANNERS[sn]+'/1500x500' : null);
 const CORSOK = location.protocol !== 'file:';     // crossOrigin only works over http(s)
 
-function initMoots(DATA){
+function initMoots(DATA, opts){
+opts = opts||{};
+// re-init support (streaming Community Archive loads swap the dataset in place): everything this
+// closure hangs on the page is torn down via __mootsTeardown before the next initMoots runs
+const REINIT = !!opts.reinit;
+const _ac = new AbortController(), SIG = {signal:_ac.signal};
+let ALIVE = true;
 const people = DATA.people;
 const byId = new Map(people.map(p=>[p.sn,p]));
 
@@ -611,7 +634,7 @@ document.getElementById('legend-title').textContent = (DATA.self ? '@'+DATA.self
 document.getElementById('legend-who').textContent = SELFH;
 
 // ---- avatar helpers (lazy) ----
-const avState = new Map(); // sn -> {st:'loading'|'ok'|'err', img}
+const avState = window.__avState || (window.__avState = new Map()); // sn -> {st:'loading'|'ok'|'err', img} — page-global so re-inits don't refetch
 function colorFor(sn){ // stable color for placeholder
   let h=0; for(const c of sn) h=(h*31+c.charCodeAt(0))%360; return `hsl(${h} 55% 55%)`;
 }
@@ -716,7 +739,7 @@ let W=0,H=0;
 // the canvas-2D fallback (also used automatically when WebGL2 is unavailable).
 const _glParams = new URLSearchParams(location.search);
 const GLMODE = _glParams.get('gl')!=='0';
-let glr = GLMODE && window.GLRenderer ? window.GLRenderer(document.getElementById('glcv')) : null;
+let glr = GLMODE && window.GLRenderer ? (window.__glr || (window.__glr = window.GLRenderer(document.getElementById('glcv')))) : null;   // one renderer per page: its avatar atlas survives re-inits
 const GL = !!glr;
 if(GL){
   const gs=document.getElementById('gl-settings'); if(gs) gs.style.display='';   // reveal avatar-res + AA + fps controls
@@ -812,8 +835,8 @@ people.forEach((p,i)=>{
     _firstMs: p.first?Date.parse(p.first):null, _lastMs: p.last?Date.parse(p.last):null,   // active span, for the scrubber
     tx, ty,
     size: nodeSize(p.total, p.last),
-    x: tx + (Math.random()-.5)*8,
-    y: ty + (Math.random()-.5)*8,
+    x: (opts.prevPos&&opts.prevPos.has(p.sn)) ? opts.prevPos.get(p.sn)[0] : tx + (Math.random()-.5)*8,   // re-init: start where the star already is
+    y: (opts.prevPos&&opts.prevPos.has(p.sn)) ? opts.prevPos.get(p.sn)[1] : ty + (Math.random()-.5)*8,
   }));
 });
 const nodeById = new Map(nodes.map(n=>[n.sn,n]));
@@ -834,7 +857,7 @@ function highlightSet(sn){
   const s=new Set([sn]); const nb=neighbors.get(sn); if(nb) nb.forEach(x=>s.add(x)); return s;
 }
 
-let needDraw=false, firstSettle=true;   // firstSettle: auto-fit the view once, after the initial layout settles
+let needDraw=false, firstSettle=!REINIT;   // firstSettle: auto-fit the view once, after the initial layout settles
 function scheduleDraw(){ needDraw=true; }
 const sim = d3.forceSimulation(nodes)
   .force('x', d3.forceX(d=>d.tx||0).strength(d=>d.me?0:0.30))
@@ -853,7 +876,7 @@ setTimeout(()=>{document.getElementById('cloading').style.display='none';}, 2600
 // NOTE: selection is handled through d3-zoom's own start/end events, because
 // d3-zoom calls stopImmediatePropagation() on mousedown/mouseup and would
 // otherwise swallow a plain canvas 'click'/'mouseup' listener.
-let transform = d3.zoomIdentity.translate(W/2,H/2).scale(0.16);
+let transform = opts.view || d3.zoomIdentity.translate(W/2,H/2).scale(0.16);
 let gstart=null;
 const zoom = d3.zoom().scaleExtent([0.04, 60])
   .on('start',(ev)=>{ gstart = ev.sourceEvent ? {x:ev.transform.x,y:ev.transform.y,k:ev.transform.k,src:ev.sourceEvent} : null; })
@@ -874,7 +897,7 @@ const zoom = d3.zoom().scaleExtent([0.04, 60])
   });
 d3.select(canvas).call(zoom);
 // set initial transform centered
-d3.select(canvas).call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(0.16));
+d3.select(canvas).call(zoom.transform, transform);
 
 document.getElementById('zin').onclick =()=>d3.select(canvas).transition().duration(250).call(zoom.scaleBy,1.5);
 document.getElementById('zout').onclick=()=>d3.select(canvas).transition().duration(250).call(zoom.scaleBy,1/1.5);
@@ -902,6 +925,7 @@ function fitView(animate){
 // ---- draw ----
 let _ft0=0, _fn=0, _fdraw=0;
 function frame(ts){
+  if(!ALIVE) return;   // torn down (re-init) -> stop this loop; the new init runs its own
   if(needDraw){ needDraw=false; _fdraw++; draw(); }
   if(GL){
     _fn++;
@@ -1243,8 +1267,8 @@ canvas.addEventListener('mousemove',(ev)=>{
     tip.innerHTML=`<b>@${n.sn}</b> · ${tipTotal.toLocaleString()} interactions`;
     canvas.style.cursor='pointer';
   } else { tip.style.display='none'; canvas.style.cursor='grab'; }
-});
-canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
+}, SIG);
+canvas.addEventListener('mouseleave',()=>{tip.style.display='none';}, SIG);
 
 // (selection is wired through zoom.on('end') above — see note there)
 
@@ -1373,14 +1397,14 @@ function moveAC(d){
     const on=i===acIdx; el.classList.toggle('active',on); if(on) el.scrollIntoView({block:'nearest'});
   });
 }
-searchEl.addEventListener('input', renderAC);
+searchEl.addEventListener('input', renderAC, SIG);
 searchEl.addEventListener('keydown',(e)=>{
   if(e.key==='ArrowDown'){ e.preventDefault(); moveAC(1); }
   else if(e.key==='ArrowUp'){ e.preventDefault(); moveAC(-1); }
   else if(e.key==='Enter'){ e.preventDefault(); if(acItems.length) chooseAC(acIdx>=0?acIdx:0); }
   else if(e.key==='Escape'){ acEl.classList.remove('show'); }
-});
-document.addEventListener('click',(e)=>{ if(!e.target.closest('.search')) acEl.classList.remove('show'); });
+}, SIG);
+document.addEventListener('click',(e)=>{ if(!e.target.closest('.search')) acEl.classList.remove('show'); }, SIG);
 
 /* ---- tabs ---- */
 function switchTab(which){
@@ -1398,7 +1422,7 @@ function switchTab(which){
 document.getElementById('tab-const').onclick=()=>switchTab('const');
 document.getElementById('tab-hist').onclick =()=>switchTab('hist');
 
-window.addEventListener('resize',()=>{ DPR=Math.min(2,window.devicePixelRatio||1); resize(); scheduleDraw(); });
+window.addEventListener('resize',()=>{ DPR=Math.min(2,window.devicePixelRatio||1); resize(); scheduleDraw(); }, SIG);
 
 // ---- settings (sizes / spread / labels) ----
 // time-window position mode: false = keep the all-time layout (sizes/visibility still update);
@@ -1788,6 +1812,11 @@ function applySharedSettings(){
   }
 }
 
+// teardown for in-place dataset swaps: stop the loop/sim, drop listeners, hand back positions + view
+window.__mootsTeardown = ()=>{
+  ALIVE=false; _ac.abort(); sim.stop(); _tweenId++;
+  return { pos:new Map(nodes.filter(n=>!n.me).map(n=>[n.sn,[n.x,n.y]])), view:transform };
+};
 // expose hooks for the shell
 window.__moots = { selectPerson, setSettings, setLayoutMode, setGL, setTimeFilter, setRedistribute, setOutlines, timeBounds:{min:tFirstMin,max:tMax}, glOn:GL, exportPNG, applyDefaults, data:DATA, redraw:scheduleDraw,
   zoomTo:(k)=>d3.select(canvas).transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(W/2,H/2).scale(k)) };
@@ -1814,7 +1843,7 @@ async function idbDel(k){ const db=await idbOpen(); return new Promise((res)=>{ 
   tx.objectStore('kv').delete(k); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }); }
 window.idbSet=idbSet; window.idbGet=idbGet; window.idbDel=idbDel;
 function configureSources(source){
-  if(source==='upload'||source==='shared'){
+  if(source==='upload'||source==='shared'||source==='ca'){
     // try the R2 CDN first (no Worker); on a miss fall back to /pfp, which resolves + caches into R2
     AV  = R2_HOST ? (sn => R2_HOST+'/'+encodeURIComponent(sn.toLowerCase())+'.jpg') : (sn => '/pfp?u='+encodeURIComponent(sn));
     AV2 = R2_HOST ? (sn => '/pfp?u='+encodeURIComponent(sn)) : null;
@@ -1824,6 +1853,13 @@ function configureSources(source){
     resolveBanner = sn => Promise.resolve(window.BANNERS&&window.BANNERS[sn] ? 'https://'+window.BANNERS[sn]+'/1500x500' : null);
   }
 }
+// swap the dataset in place (streaming loads): tear the current viz down and rebuild it on the
+// same canvas, keeping star positions + the camera so updates read as growth, not a reload
+window.__mootsSetData = (raw, source)=>{
+  const prev = window.__mootsTeardown ? window.__mootsTeardown() : null;
+  if(source){ configureSources(source); window.__MOOTS_SOURCE=source; }
+  initMoots(raw, { reinit:!!prev, prevPos:prev&&prev.pos, view:prev&&prev.view });
+};
 async function boot(){
   let raw=null, source='demo';
   // 1) a shared permalink  /v/:id
@@ -1851,5 +1887,6 @@ async function boot(){
 boot();
 </script>
 <script src="shell.js"></script>
+<script src="ca.js"></script>
 </body>
 </html>

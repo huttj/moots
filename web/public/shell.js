@@ -11,7 +11,7 @@
      already ran (window.__MOOTS_SOURCE set before this script executed). */
   function applyWelcome(source) {
     const w = $('welcome');
-    $('btn-clear').style.display = (source === 'upload' || source === 'shared') ? '' : 'none';
+    $('btn-clear').style.display = (source === 'upload' || source === 'shared' || source === 'ca') ? '' : 'none';
     if (source === 'demo' || source === 'shared') {
       const self = (window.__moots && window.__moots.data && window.__moots.data.self) || 'someone';
       $('welcome-who').textContent = '@' + self;
@@ -127,12 +127,11 @@
   const showHow = () => howmodal.classList.remove('hide');
   const hideHow = () => howmodal.classList.add('hide');
   $('btn-upload').onclick = showHow;                         // "See yours" -> popover
-  $('w-how').onclick = showHow;                              // welcome "How to get it"
   $('d-how').onclick = showHow;                              // drop overlay link
   $('howclose').onclick = hideHow;
   howmodal.onclick = e => { if (e.target === howmodal) hideHow(); };   // backdrop click
   $('how-upload').onclick = () => { hideHow(); openPicker(); };        // CTA -> file picker
-  $('w-upload').onclick = openPicker;                        // welcome "Drop your own archive"
+  $('w-upload').onclick = showHow;                           // welcome "Drop your own archive" -> popover
 
   // drag & drop anywhere
   const drop = $('drop');

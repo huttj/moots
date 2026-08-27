@@ -6,6 +6,10 @@
      GET  /v/<id>              the app HTML with Open-Graph meta injected (for link previews)
      GET  /v/<id>/data         the shared aggregated JSON (client fetches this to render)
      GET  /v/<id>/og.png       the shared preview image (Open-Graph)
+     GET  /ca/<user>/meta      { archive_at } of the cached Community Archive tally for <user> (404 if none)
+     GET  /ca/<user>/data      that cached tally (same shape as /v/<id>/data)
+     POST /ca/<user>           store a tally the browser built from the Community Archive API
+                               {data, archive_at}; archive_at is checked against CA before it's accepted
    Profile pics resolve via x.com HTML -> pbs.twimg.com, unavatar.io fallback. */
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
@@ -224,6 +228,59 @@ async function viewShare(req, env, id, sub, ctx) {
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
 }
 
+/* ---- Community Archive cache ----
+   The browser pages the CA API itself (community-archive.org) and tallies as it goes; the finished
+   tally lands here so the next visitor gets it instantly. One record per handle, overwritten in place
+   when the person re-uploads to CA (archive_at moves), so stale blobs never pile up.
+     ca:<user>  -> gzipped { a:<archive_at>, t:<stored ms>, d:<tally> }  */
+const CA_API = 'https://fabxmporizzqflnftavs.supabase.co/rest/v1';
+const CA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhYnhtcG9yaXp6cWZsbmZ0YXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjIyNDQ5MTIsImV4cCI6MjAzNzgyMDkxMn0.UIEJiUNkLsW28tBHmG-RQDW-I5JNlJLt62CSk9D_qG8';   // public anon key (documented as intentionally public)
+async function caLatestArchiveAt(user) {
+  const u = `${CA_API}/archive_upload?select=archive_at&username=ilike.${encodeURIComponent(user)}&upload_phase=eq.completed&order=created_at.desc&limit=1`;
+  const r = await fetch(u, { headers: { apikey: CA_KEY, Authorization: 'Bearer ' + CA_KEY } });
+  if (!r.ok) throw new Error('ca ' + r.status);
+  const rows = await r.json();
+  return rows.length ? rows[0].archive_at : null;
+}
+async function caGet(env, user) {
+  const buf = await env.SHARES.get('ca:' + user.toLowerCase(), 'arrayBuffer');
+  if (!buf) return null;
+  return JSON.parse(await gunzip(new Uint8Array(buf), 30_000_000));
+}
+async function caRoute(req, env, user, sub) {
+  if (!HANDLE.test(user)) return json({ error: 'bad handle' }, 400);
+  if (!env.SHARES) return json({ error: 'not configured' }, 501);
+  if (req.method === 'POST' && !sub) {
+    let form; try { form = await req.formData(); } catch (_) { return json({ error: 'bad form' }, 400); }
+    const at = String(form.get('archive_at') || '').slice(0, 40);
+    const dataBlob = form.get('data'); if (!dataBlob || !at) return json({ error: 'no data' }, 400);
+    let latest; try { latest = await caLatestArchiveAt(user); } catch (_) { return json({ error: 'ca unreachable' }, 502); }
+    if (!latest || latest !== at) return json({ error: 'stale', latest }, 409);   // only the current upload may be cached
+    const raw = new Uint8Array(await dataBlob.arrayBuffer());
+    let text;
+    try { text = isGzip(raw) ? await gunzip(raw, 24_000_000) : new TextDecoder().decode(raw); } catch (_) { return json({ error: 'too large' }, 413); }
+    let clean; try { clean = sanitize(JSON.parse(text)); } catch (_) { return json({ error: 'bad data' }, 400); }
+    if (!clean.self || clean.self.toLowerCase() !== user.toLowerCase()) return json({ error: 'self mismatch' }, 400);
+    const rec = JSON.stringify({ a: at, t: Date.now(), d: clean });
+    if (rec.length > 24_000_000) return json({ error: 'too large' }, 413);
+    await env.SHARES.put('ca:' + user.toLowerCase(), await gzip(rec), { metadata: { a: at, n: clean.totalPeople } });
+    return json({ ok: true });
+  }
+  if (req.method !== 'GET') return json({ error: 'method' }, 405);
+  if (sub === '/meta') {
+    const m = await env.SHARES.getWithMetadata('ca:' + user.toLowerCase(), 'stream');
+    if (!m || !m.value) return json({ error: 'not found' }, 404);
+    try { await m.value.cancel(); } catch (_) {}
+    return json({ archive_at: m.metadata && m.metadata.a, n: m.metadata && m.metadata.n });
+  }
+  if (sub === '/data') {
+    const rec = await caGet(env, user);
+    if (!rec) return json({ error: 'not found' }, 404);
+    return new Response(JSON.stringify(rec.d), { headers: { ...CORS, 'Content-Type': 'application/json', 'X-Archive-At': rec.a, 'Cache-Control': 'public, max-age=300' } });
+  }
+  return json({ error: 'not found' }, 404);
+}
+
 export default {
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -234,6 +291,8 @@ export default {
     if (p === '/share' && req.method === 'POST') return share(req, env);
     const v = p.match(/^\/v\/([^/]+)(\/data|\/og\.png)?$/);
     if (v) return viewShare(req, env, v[1], v[2], ctx);
+    const c = p.match(/^\/ca\/([^/]+)(\/meta|\/data)?$/);
+    if (c) return caRoute(req, env, c[1], c[2]);
     return env.ASSETS.fetch(req);   // static site
   },
 };
