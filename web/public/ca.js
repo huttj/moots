@@ -78,6 +78,9 @@
     ac.innerHTML = matches.map((m, i) => `<div class="ac-item${i === 0 ? ' active' : ''}" data-i="${i}">
       <span class="nm">${m.resume ? '↻ resume ' : ''}<b>@${esc(m.a.username)}</b> <span style="color:var(--dim)">${esc(m.a.account_display_name || '')}</span></span>
       <span class="ct">${(+m.a.num_tweets || 0).toLocaleString()} tweets</span></div>`).join('');
+    const r = q.getBoundingClientRect();   // fixed-position overlay anchored under the input (escapes the card's overflow clip)
+    ac.style.top = (r.bottom + 6) + 'px'; ac.style.left = r.left + 'px'; ac.style.width = r.width + 'px';
+    ac.style.maxHeight = Math.max(120, Math.min(320, window.innerHeight - r.bottom - 18)) + 'px';   // never past the bottom edge
     ac.classList.toggle('show', matches.length > 0);
     ac.querySelectorAll('.ac-item').forEach(el => { el.onmousedown = e => e.preventDefault(); el.onclick = () => pick(matches[+el.dataset.i].a); });
   }

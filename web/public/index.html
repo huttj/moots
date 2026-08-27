@@ -190,11 +190,11 @@
   .upload-cta .u{color:var(--accent2);text-decoration:underline}
   .how-sub{margin:18px 0 8px;font-size:13.5px;color:var(--dim)}
   .ca-box{margin-top:14px}
-  .ca-row{display:flex;gap:8px;align-items:flex-start}
+  .ca-row{display:flex;gap:8px;align-items:center}
   .ca-pick{flex:1;min-width:0;position:relative}
   .ca-pick input{width:100%;box-sizing:border-box;background:#1c1c2c;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;font-size:13px;outline:0}
   .ca-pick input:focus{border-color:var(--accent2)}
-  .ca-ac{position:static;margin-top:6px;width:100%;box-sizing:border-box;max-height:220px}   /* in-flow: the card scrolls, so a floating list would be clipped */
+  .ca-ac{position:fixed;top:auto;left:auto;right:auto;z-index:95;box-sizing:border-box;max-height:min(320px,40vh)}   /* fixed + placed by JS: floats over the card instead of being clipped by its scroll box */
   .ca-ac .nm{flex:1}
   .ca-ac .ct{font-size:11.5px;color:var(--dim);flex:none}
   .ca-box .tiny{display:block;margin:8px 0 0;color:var(--dim);font-size:11.5px}
